@@ -1,3 +1,2 @@
 crcmod==1.7
 pyserial==3.5
--e git+https://github.com/rasheeddo/ddsm115_controller.git#egg=ddsm115_controller
