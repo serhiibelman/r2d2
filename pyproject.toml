@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "r2d2"
+version = "0.1.0"
+description = ""
+authors = ["Serhii"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+crcmod = "^1.7"
+pyserial = "^3.5"
+ddsm115-controller = {git = "https://github.com/rasheeddo/ddsm115_controller.git"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
