@@ -1,3 +1,4 @@
 crcmod==1.7
 pyserial==3.5
 colorama==0.4.6
+python-dotenv==1.2.1
