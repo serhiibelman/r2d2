@@ -1,4 +1,6 @@
 import struct
+import time
+from typing import Optional
 
 import crcmod.predefined
 
@@ -7,82 +9,177 @@ import serial.rs485
 
 from apps.common.converters import int16_to_bytes
 from apps.common.formatting import print_info, print_error, print_warning
+from apps.ddsm115 import Frame
 from settings import DEVICE
 
 
-class Int16ToBytesArray:
-    def __init__(self, data: int):
-        self.byte1 = (data & 0xFF00) >> 8
-        self.byte2 = data & 0x00FF
-
-    def get_bytes(self):
-        return [self.byte1, self.byte2]
-
-
 class DDS115:
+    BAUDRATE = 115200
+    CMD_SET_ID = 0x53
+    CMD_CONTROL = 0x64
+    FRAME_END = 0xDE
+
     def __init__(self, device=DEVICE):
-        self.ser = serial.rs485.RS485(device, 115200, timeout=0)
-        self.ser.rs485_mode = serial.rs485.RS485Settings()
+        try:
+            self.ser = serial.rs485.RS485(device, self.BAUDRATE, timeout=0.1)
+            self.ser.rs485_mode = serial.rs485.RS485Settings()
+        except serial.SerialException as e:
+            raise RuntimeError(f"Failed to open serial device {device}") from e
+
         self.crc8 = crcmod.predefined.mkPredefinedCrcFun("crc-8-maxim")
-        self.str_10bytes = ">BBBBBBBBBB"
-        self.str_9bytes = ">BBBBBBBBB"
 
-        self.prev_fb_rpm = [0, 0, 0, 0]
-        self.prev_fb_cur = [0, 0, 0, 0]
+        self._fmt_10 = ">BBBBBBBBBB"
+        self._fmt_9 = ">BBBBBBBBB"
 
-    def crc_attach(self, data_bytes: bytes):
-        crc_int = self.crc8(data_bytes)
-        data_bytearray = bytearray(data_bytes)
-        data_bytearray.append(crc_int)
-        return bytes(data_bytearray)
+        self.prev_fb_rpm = [0] * 4
+        self.prev_fb_cur = [0] * 4
 
-    def set_id(self, motor_id: int):
+    def close(self):
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+
+    def _check_motor_id(self, motor_id: int) -> None:
+        if not 0 <= motor_id <= 255:
+            raise ValueError("motor_id must be in range 0..255")
+
+    def _crc_attach(self, payload: bytes) -> bytes:
+        return payload + bytes([self.crc8(payload)])
+
+    def _write(self, data: bytes) -> None:
         """
-        Connect only 1 motor, and call this function to set the ID of that motor
+        RS-485 safe write.
+        No busy-looping, no fake 'writable()' checks.
         """
-        # fmt: off
-        set_id = struct.pack(
-            self.str_10bytes,0xAA, 0x55, 0x53, motor_id, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDE
+        self.ser.reset_output_buffer()
+        self.ser.write(data)
+        self.ser.flush()
+        time.sleep(0.001)  # allow TX to finish on half-duplex bus
+
+    # -------------------------------------------------
+    # protocol commands
+    # -------------------------------------------------
+
+    def set_id(self, motor_id: int) -> None:
+        """
+        Connect ONLY one motor when calling this.
+        """
+        self._check_motor_id(motor_id)
+
+        frame = struct.pack(
+            self._fmt_10,
+            0xAA,
+            0x55,
+            self.CMD_SET_ID,
+            motor_id,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            self.FRAME_END,
         )
-        for i in range(5):
-            self.ser.write(set_id)
 
-    def get_motor_id(self):
-        # fmt: off
-        id_que = struct.pack(
-            self.str_10bytes, 0xC8, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDE
+        for _ in range(5):
+            self._write(frame)
+            time.sleep(0.05)
+
+    def get_motor_id(self) -> None:
+        frame = struct.pack(
+            self._fmt_10,
+            0xC8,
+            self.CMD_CONTROL,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            self.FRAME_END,
         )
-        self.ser.write(id_que)
-        data = self.ser.read_until(size=10)
 
-        print(data)
-        print_info(f"ID: {data[0]}")
-        print_info(f"Mode: {data[1]}")
-        print_error(f"Error: {data[8]}")
+        self._write(frame)
 
-    def send_rpm(self, motor_id: int, rpm):
+        reply = self.read_reply(motor_id=0xC8, timeout=0.05)
+        if reply is None:
+            print_warning("No response")
+            return
 
-        rpm = int(rpm)
-        # TODO: check function
-        # rpm_ints = Int16ToBytesArray(rpm).get_bytes()
-        rpm_ints = int16_to_bytes(rpm)
-        cmd_bytes = struct.pack(
-            self.str_9bytes, motor_id, 0x64, rpm_ints[0], rpm_ints[1], 0x00, 0x00, 0x00, 0x00, 0x00
+        print_info(f"ID: {reply.id}")
+        print_info(f"Mode: {reply.mode}")
+        print_error(f"Error: {reply.error}")
+
+    def send_rpm(self, motor_id: int, rpm: int) -> None:
+        self._check_motor_id(motor_id)
+
+        if not -32768 <= rpm <= 32767:
+            raise ValueError("rpm must fit int16")
+
+        hi, lo = int16_to_bytes(rpm)
+
+        frame = struct.pack(
+            self._fmt_9,
+            motor_id,
+            self.CMD_CONTROL,
+            hi,
+            lo,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
         )
-        cmd_bytes = self.crc_attach(cmd_bytes)
 
-        while not self.ser.writable():
-            print_warning("send_rpm not writable")
-            pass
-        self.ser.write(cmd_bytes)
-
-        # _, _, _ = self.read_reply(_id)
+        self._write(self._crc_attach(frame))
+        self.read_reply(motor_id)
 
     def set_brake(self, motor_id: int):
-        # fmt: off
-        cmd_bytes = struct.pack(
-            self.str_9bytes, motor_id, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00
+        frame = struct.pack(
+            self._fmt_9,
+            motor_id,
+            self.CMD_CONTROL,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0xFF,
+            0x00,
         )
-        cmd_bytes = self.crc_attach(cmd_bytes)
-        self.ser.write(cmd_bytes)
-        res = self.ser.read_until(size=10)
+
+        self._write(self._crc_attach(frame))
+
+    def read_reply(
+        self,
+        motor_id: int,
+        timeout: float = 0.02,
+    ) -> Optional[Frame]:
+        """
+        Sliding-window frame parser.
+        Safe for noisy RS-485 lines.
+        """
+        buffer = bytearray()
+        start = time.monotonic()
+
+        while time.monotonic() - start < timeout:
+            chunk = self.ser.read(1)
+            if not chunk:
+                continue
+
+            buffer.append(chunk[0])
+
+            if len(buffer) > Frame.FRAME_SIZE:
+                buffer.pop(0)
+
+            if len(buffer) == Frame.FRAME_SIZE:
+                try:
+                    frame = Frame.from_bytes(bytes(buffer), self.crc8)
+                except ValueError:
+                    continue
+
+                if frame.id == motor_id:
+                    self.prev_fb_rpm[motor_id - 1] = frame.rpm
+                    self.prev_fb_cur[motor_id - 1] = frame.current_raw
+                    return frame
+
+        return None

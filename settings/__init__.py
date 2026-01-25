@@ -1,1 +1,1 @@
-from environment import DEVICE
+from .environment import DEVICE
