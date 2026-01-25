@@ -148,6 +148,7 @@ class DDS115:
         )
 
         self._write(self._crc_attach(frame))
+        self.read_reply(motor_id)
 
     def read_reply(
         self,
