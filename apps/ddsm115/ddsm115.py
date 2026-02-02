@@ -109,7 +109,7 @@ class DDS115:
         print_info(f"Mode: {reply.mode}")
         print_error(f"Error: {reply.error}")
 
-    def send_rpm(self, motor_id: int, rpm: int) -> None:
+    def send_rpm(self, motor_id: int, rpm: int = 0) -> None:
         self._check_motor_id(motor_id)
 
         if not -32768 <= rpm <= 32767:

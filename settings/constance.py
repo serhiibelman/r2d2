@@ -1,0 +1,2 @@
+RIGHT_SIDE = (1, 2)
+LEFT_SIDE = (3, 4)
