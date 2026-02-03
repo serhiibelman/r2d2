@@ -17,6 +17,14 @@ def apply_to_all_motors(action, *, dry_run: bool):
         action(motor_id)
 
 
+def apply_to(action, *, side: list, dry_run: bool):
+    if dry_run:
+        return
+
+    for motor_id in side:
+        action(motor_id)
+
+
 def ramp_rpm(motor, start, stop, step, delay, *, dry_run: bool):
     rpms = list(range(start, stop, step))
 
@@ -30,8 +38,14 @@ def ramp_rpm(motor, start, stop, step, delay, *, dry_run: bool):
             # for rpm in range(start, stop, step):
             bar.set_postfix(rpm=rpm)
 
-            apply_to_all_motors(
+            apply_to(
+                lambda m_id, rpm=rpm: motor.send_rpm(m_id, rpm=rpm * (-1)),
+                side=RIGHT_SIDE,
+                dry_run=dry_run,
+            )
+            apply_to(
                 lambda m_id, rpm=rpm: motor.send_rpm(m_id, rpm=rpm),
+                side=LEFT_SIDE,
                 dry_run=dry_run,
             )
 
