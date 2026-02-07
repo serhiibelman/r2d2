@@ -3,3 +3,4 @@ pyserial==3.5
 colorama==0.4.6
 python-dotenv==1.2.1
 tqdm==4.67.2
+pymavlink==2.4.49
