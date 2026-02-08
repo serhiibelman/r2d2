@@ -13,8 +13,4 @@ print("CONNECTED")
 
 while True:
     msg = fc.recv_match(type="ATTITUDE", blocking=True)
-    print(
-        f"roll={msg.roll:.2f} "
-        f"pitch={msg.pitch:.2f} "
-        f"yaw={msg.yaw:.2f}"
-    )
+    print(f"roll={msg.roll:.2f} " f"pitch={msg.pitch:.2f} " f"yaw={msg.yaw:.2f}")
