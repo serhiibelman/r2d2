@@ -1,18 +1,8 @@
 import time
-from dataclasses import dataclass, asdict
 
 import pygame
 from apps.common.formatting import print_info, print_error
-
-
-@dataclass
-class ControllerState:
-    timestamp: float
-    axes: list[float]
-    buttons: list[int]
-
-    def to_json(self) -> dict:
-        return asdict(self)
+from apps.controller.state import ControllerState, AxesState, ButtonsState
 
 
 class ControllerReader:
@@ -29,11 +19,31 @@ class ControllerReader:
 
         print_info(f"Joystick connected: {self.joy.get_name()}")
 
-    def read_state(self):
+    def read_state(self) -> ControllerState:
         pygame.event.pump()
+        # print("AXIS", [self.joy.get_axis(x) for x in range(6)])
+        # print("BUTTONS", [self.joy.get_button(x) for x in range(16)])
+        axes = AxesState(
+            left_x=self.joy.get_axis(0),
+            left_y=self.joy.get_axis(1),
+            right_x=self.joy.get_axis(2),
+            right_y=self.joy.get_axis(3),
+            trigger_left=self.joy.get_axis(5),
+            trigger_right=self.joy.get_axis(4),
+        )
 
-        axes = [self.joy.get_axis(i) for i in range(self.joy.get_numaxes())]
-        buttons = [self.joy.get_button(i) for i in range(self.joy.get_numbuttons())]
+        buttons = ButtonsState(
+            a=bool(self.joy.get_button(0)),
+            b=bool(self.joy.get_button(1)),
+            x=bool(self.joy.get_button(3)),
+            y=bool(self.joy.get_button(4)),
+            lb=bool(self.joy.get_button(6)),
+            rb=bool(self.joy.get_button(7)),
+            rt=bool(self.joy.get_button(8)),
+            lt=bool(self.joy.get_button(9)),
+            l=bool(self.joy.get_button(13)),
+            r=bool(self.joy.get_button(14)),
+        )
 
         return ControllerState(
             timestamp=time.time(),
