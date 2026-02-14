@@ -38,3 +38,11 @@ class UDPReceiver:
 
     def quit(self):
         self.sock.close()
+
+
+if __name__ == "__main__":
+    receiver = UDPReceiver()
+
+    while True:
+        data = receiver.receive()
+        print("receive:", data)

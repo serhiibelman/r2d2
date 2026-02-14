@@ -2,9 +2,9 @@
 
 from pymavlink import mavutil
 
-serial = "/dev/serial/by-id/usb-ArduPilot_MatekH743_390030000851333335323632-if00"
+# serial = "/dev/serial/by-id/usb-ArduPilot_MatekH743_390030000851333335323632-if00"
 # serial = "/dev/serial/by-path/pci-0000\:05\:00.3-usb"
-# serial = "/dev/serial0"
+serial = "/dev/serial0"
 
 fc = mavutil.mavlink_connection(serial, baud=115200)
 fc.wait_heartbeat()
