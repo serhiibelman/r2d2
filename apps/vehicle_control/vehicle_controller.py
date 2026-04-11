@@ -8,6 +8,7 @@ from apps.ddsm115 import DDS115
 from settings import RIGHT_SIDE, LEFT_SIDE
 
 MAX_RPM = 200
+MAX_STEER_RPM = 100  # half of MAX_RPM for gentler turns
 RAMP_STEP = 5
 DEAD_ZONE = 0.1   # ignore axis jitter near center
 LOOP_INTERVAL = 0.05  # 20 Hz
@@ -114,7 +115,7 @@ class VehicleController:
         produces a tank turn; when the vehicle is moving it gives differential
         steering.
         """
-        steer = 0.0 if abs(right_x) < DEAD_ZONE else right_x * MAX_RPM
+        steer = 0.0 if abs(right_x) < DEAD_ZONE else right_x * MAX_STEER_RPM
         left_rpm = max(-MAX_RPM, min(MAX_RPM, base_rpm + steer))
         right_rpm = max(-MAX_RPM, min(MAX_RPM, base_rpm - steer))
         return left_rpm, right_rpm
