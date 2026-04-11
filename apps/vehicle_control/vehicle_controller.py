@@ -21,13 +21,10 @@ class VehicleController:
         self._braked: bool = False
 
     def run(self):
-        """
-        Public interface
-        """
         print_info("VehicleController started")
         try:
             while True:
-                state = self.receiver.receive()
+                state = self._receive_latest()
                 if state is not None:
                     self._handle(state)
                 time.sleep(LOOP_INTERVAL)
@@ -36,18 +33,38 @@ class VehicleController:
         finally:
             self._stop_motors()
 
+    def _receive_latest(self) -> Optional[ControllerState]:
+        """Drain the UDP buffer and return only the most recent state.
+
+        send_rpm() blocks per motor, so packets pile up between iterations.
+        Without draining, we always act on stale data.
+        """
+        latest = None
+        while True:
+            pkt = self.receiver.receive()
+            if pkt is None:
+                break
+            latest = pkt
+        return latest
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _handle(self, state: ControllerState) -> None:
+        a_held = state.buttons.a
+        print(
+            f"a={a_held} lb={state.buttons.lb} "
+            f"left_y={state.axes.left_y:+.2f} left_x={state.axes.left_x:+.2f} "
+            f"rpm={self._current_rpm:.0f}"
+        )
         if state.buttons.lb:
             self._brake()
             return
 
         self._braked = False
 
-        if state.buttons.l:
+        if state.buttons.a:
             left_y = state.axes.left_y  # up = -1, down = +1
             left_x = state.axes.left_x  # left = -1, right = +1
 
