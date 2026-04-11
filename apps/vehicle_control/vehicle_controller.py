@@ -116,3 +116,17 @@ class VehicleController:
         if abs(diff) <= RAMP_STEP:
             return target
         return current + RAMP_STEP * (1 if diff > 0 else -1)
+
+
+# ------------------------------------
+# Neutral:
+# ControllerState(timestamp=1775902322.7635214, axes=AxesState(left_x=-0.02642822265625, left_y=0.059478759765625, right_x=-0.02618408203125, right_y=-0.01727294921875, trigger_left=-1.0, trigger_right=-1.0), buttons=ButtonsState(a=False, b=False, x=False, y=False, lb=False, rb=False, lt=False, rt=False, l=False, r=False))
+# left trigger up:
+# ControllerState(timestamp=1775902272.1261027, axes=AxesState(left_x=0.137939453125, left_y=-1.0, right_x=-0.02618408203125, right_y=-0.01727294921875, trigger_left=-1.0, trigger_right=-1.0), buttons=ButtonsState(a=False, b=False, x=False, y=False, lb=False, rb=False, lt=False, rt=False, l=False, r=False))
+# left trigger down:
+# ControllerState(timestamp=1775902374.1964815, axes=AxesState(left_x=-0.04742431640625, left_y=0.996429443359375, right_x=0.05743408203125, right_y=-0.01470947265625, trigger_left=-1.0, trigger_right=-1.0), buttons=ButtonsState(a=False, b=False, x=False, y=False, lb=False, rb=False, lt=False, rt=False, l=False, r=False))
+# left trigger right:
+# ControllerState(timestamp=1775902428.1530073, axes=AxesState(left_x=0.999969482421875, left_y=0.159881591796875, right_x=-0.006591796875, right_y=-0.01470947265625, trigger_left=-1.0, trigger_right=-1.0), buttons=ButtonsState(a=False, b=False, x=False, y=False, lb=False, rb=False, lt=False, rt=False, l=False, r=False))
+# left trigger right:
+# ControllerState(timestamp=1775902447.8161588, axes=AxesState(left_x=-1.0, left_y=0.020843505859375, right_x=-0.006591796875, right_y=-0.01470947265625, trigger_left=-1.0, trigger_right=-1.0), buttons=ButtonsState(a=False, b=False, x=False, y=False, lb=False, rb=False, lt=False, rt=False, l=False, r=False))
+# -------------------------------------
