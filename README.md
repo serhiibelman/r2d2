@@ -14,9 +14,29 @@ source ~/r2d2/venv/bin/activate
 
 ## 3. Install requirements
 
-``
+```
 pip install -r ~/r2d2/requirements.txt
-``
+```
+
+## 4. Start status API
+
+Run on the vehicle:
+
+```
+uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Available endpoints:
+
+1. `GET /health` - API and hardware probe health.
+2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
+
+Notes:
+
+1. The API is intended to run on the vehicle itself so it can probe local hardware directly.
+2. The current status API is read-only.
+3. If another process already owns the motor or FC serial port, the API will report that component as unavailable.
+4. Motor telemetry fields are placeholders for now; this first step confirms API structure and local hardware reachability.
 
 
 # Controller mode
