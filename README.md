@@ -39,6 +39,17 @@ Notes:
 4. Motor telemetry fields are placeholders for now; this first step confirms API structure and local hardware reachability.
 
 
+## 5. Vehicle control with gamepad
+
+See `docs/gamepad-control.md` for the operator flow and control mapping.
+
+Quick start:
+
+1. On the Raspberry Pi, run `./start_vehicle.sh`.
+2. On the laptop with the gamepad connected, run `./start_controller.sh`.
+3. Use the controls from the gamepad doc to enable drive and move the vehicle.
+
+
 # Controller mode
 
 1. connect to vehicle via ssh ``
