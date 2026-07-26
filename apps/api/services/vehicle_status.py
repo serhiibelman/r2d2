@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from time import sleep
 from threading import Event, Lock, Thread
-from typing import Any
+from typing import Any, Callable
 
 from pymavlink import mavutil
 from serial import SerialException
 
 from apps.ddsm115 import DDS115
+from apps.vehicle_control.vehicle_controller import LOOP_INTERVAL, MAX_RPM, VehicleController
 from settings import DEVICE, FC_BAUDRATE, FC_DEVICE, LEFT_SIDE, RIGHT_SIDE
 
 
@@ -32,14 +34,20 @@ class VehicleStatusService:
         fc_device: str | None = FC_DEVICE,
         fc_baudrate: int = FC_BAUDRATE,
         probe_interval_seconds: float = 2.0,
+        motor_factory: Callable[..., DDS115] = DDS115,
+        sleep_func: Callable[[float], None] = sleep,
     ):
         self.motor_device = motor_device
         self.fc_device = fc_device
         self.fc_baudrate = fc_baudrate
         self.probe_interval_seconds = probe_interval_seconds
+        self._motor_factory = motor_factory
+        self._sleep = sleep_func
         self._stop_event = Event()
         self._lock = Lock()
+        self._motor_bus_lock = Lock()
         self._thread: Thread | None = None
+        self._current_command_rpm = 0
         self._components = {
             "motor_bus": ComponentSnapshot(
                 configured=bool(self.motor_device),
@@ -94,6 +102,23 @@ class VehicleStatusService:
             "motor_feedback": motor_feedback,
         }
 
+    def start_motors(self, rpm: int) -> dict[str, Any]:
+        self._validate_rpm(rpm)
+        self._run_motor_ramp(target_rpm=rpm)
+        return self._motor_command_response(
+            action="start",
+            target_rpm=rpm,
+            detail=f"All motors ramped to {rpm} rpm",
+        )
+
+    def stop_motors(self) -> dict[str, Any]:
+        self._run_motor_ramp(target_rpm=0)
+        return self._motor_command_response(
+            action="stop",
+            target_rpm=0,
+            detail="All motors ramped down to 0 rpm",
+        )
+
     def _probe_loop(self) -> None:
         while not self._stop_event.is_set():
             motor_bus = self._probe_motor_bus()
@@ -115,19 +140,20 @@ class VehicleStatusService:
                 checked_at=checked_at,
             )
 
-        motor = None
-        try:
-            motor = DDS115(device=self.motor_device)
-        except (RuntimeError, SerialException, ValueError) as exc:
-            return ComponentSnapshot(
-                configured=True,
-                connected=False,
-                detail=str(exc),
-                checked_at=checked_at,
-            )
-        finally:
-            if motor is not None:
-                motor.close()
+        with self._motor_bus_lock:
+            motor = None
+            try:
+                motor = self._motor_factory(device=self.motor_device)
+            except (RuntimeError, SerialException, ValueError) as exc:
+                return ComponentSnapshot(
+                    configured=True,
+                    connected=False,
+                    detail=str(exc),
+                    checked_at=checked_at,
+                )
+            finally:
+                if motor is not None:
+                    motor.close()
 
         return ComponentSnapshot(
             configured=True,
@@ -174,3 +200,76 @@ class VehicleStatusService:
         if all(component["configured"] and component["connected"] for component in components.values()):
             return "ok"
         return "degraded"
+
+    def _run_motor_ramp(self, *, target_rpm: int) -> None:
+        if not self.motor_device:
+            self._set_motor_component(connected=False, detail="DEVICE is not configured")
+            raise RuntimeError("Motor device is not configured")
+
+        with self._motor_bus_lock:
+            motor = None
+            try:
+                motor = self._motor_factory(device=self.motor_device)
+            except (RuntimeError, SerialException, ValueError) as exc:
+                self._set_motor_component(connected=False, detail=str(exc))
+                raise RuntimeError(str(exc)) from exc
+
+            try:
+                current_rpm = self._current_rpm()
+                while current_rpm != target_rpm:
+                    current_rpm = int(VehicleController._ramp_toward(current_rpm, target_rpm))
+                    self._send_motor_commands(motor, current_rpm)
+                    if current_rpm != target_rpm:
+                        self._sleep(LOOP_INTERVAL)
+            finally:
+                motor.close()
+
+        self._set_motor_component(
+            connected=True,
+            detail=f"Serial device opened successfully; last commanded base rpm is {target_rpm}",
+        )
+
+    def _send_motor_commands(self, motor: DDS115, base_rpm: int) -> None:
+        for motor_id in LEFT_SIDE:
+            motor.send_rpm(motor_id, rpm=base_rpm)
+        for motor_id in RIGHT_SIDE:
+            motor.send_rpm(motor_id, rpm=base_rpm * (-1))
+
+        with self._lock:
+            self._current_command_rpm = base_rpm
+            self._motor_feedback = [
+                {
+                    "motor_id": motor_id,
+                    "rpm": base_rpm if motor_id in LEFT_SIDE else base_rpm * (-1),
+                    "current_raw": None,
+                }
+                for motor_id in LEFT_SIDE + RIGHT_SIDE
+            ]
+
+    def _motor_command_response(self, *, action: str, target_rpm: int, detail: str) -> dict[str, Any]:
+        return {
+            "service": "r2d2-vehicle-api",
+            "action": action,
+            "target_rpm": target_rpm,
+            "current_rpm": self._current_rpm(),
+            "detail": detail,
+            "timestamp": utc_now(),
+        }
+
+    def _current_rpm(self) -> int:
+        with self._lock:
+            return self._current_command_rpm
+
+    def _set_motor_component(self, *, connected: bool, detail: str) -> None:
+        with self._lock:
+            self._components["motor_bus"] = ComponentSnapshot(
+                configured=bool(self.motor_device),
+                connected=connected,
+                detail=detail,
+                checked_at=utc_now(),
+            )
+
+    @staticmethod
+    def _validate_rpm(rpm: int) -> None:
+        if not -MAX_RPM <= rpm <= MAX_RPM:
+            raise ValueError(f"rpm must be between {-MAX_RPM} and {MAX_RPM}")
