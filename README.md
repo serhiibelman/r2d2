@@ -18,7 +18,7 @@ source ~/r2d2/venv/bin/activate
 pip install -r ~/r2d2/requirements.txt
 ```
 
-## 4. Start status API
+## 4. Start vehicle API
 
 Run on the vehicle:
 
@@ -30,13 +30,25 @@ Available endpoints:
 
 1. `GET /health` - API and hardware probe health.
 2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
+3. `POST /motors/start` - ramp all motors to a requested base RPM.
+4. `POST /motors/stop` - ramp all motors down to zero.
+
+Example:
+
+```bash
+curl -X POST http://<vehicle-host>:8000/motors/start \
+  -H 'Content-Type: application/json' \
+  -d '{"rpm": 120}'
+
+curl -X POST http://<vehicle-host>:8000/motors/stop
+```
 
 Notes:
 
 1. The API is intended to run on the vehicle itself so it can probe local hardware directly.
-2. The current status API is read-only.
-3. If another process already owns the motor or FC serial port, the API will report that component as unavailable.
-4. Motor telemetry fields are placeholders for now; this first step confirms API structure and local hardware reachability.
+2. Motor start accepts values in the same range used by the controller logic: `-200` to `200`.
+3. The motor endpoints ramp in controller-sized steps instead of jumping to the target immediately.
+4. If another process already owns the motor or FC serial port, the API will report that component as unavailable and motor commands can fail with `503`.
 
 
 ## 5. Vehicle control with gamepad

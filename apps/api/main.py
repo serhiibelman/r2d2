@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from apps.api.routes.health import router as health_router
+from apps.api.routes.motors import router as motors_router
 from apps.api.routes.status import router as status_router
 from apps.api.services.vehicle_status import VehicleStatusService
 
@@ -33,6 +34,7 @@ def create_app(vehicle_status_service: VehicleStatusService | None = None) -> Fa
         }
 
     app.include_router(health_router)
+    app.include_router(motors_router)
     app.include_router(status_router)
     return app
 

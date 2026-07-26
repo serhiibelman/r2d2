@@ -6,11 +6,39 @@ from apps.api.main import create_app
 
 
 class FakeVehicleStatusService:
+    def __init__(self) -> None:
+        self.started_rpms: list[int] = []
+        self.stop_calls = 0
+
     def start(self) -> None:
         return None
 
     def stop(self) -> None:
         return None
+
+    def start_motors(self, rpm: int) -> dict:
+        self.started_rpms.append(rpm)
+        now = datetime.now(timezone.utc)
+        return {
+            "service": "r2d2-vehicle-api",
+            "action": "start",
+            "target_rpm": rpm,
+            "current_rpm": rpm,
+            "detail": f"All motors ramped to {rpm} rpm",
+            "timestamp": now,
+        }
+
+    def stop_motors(self) -> dict:
+        self.stop_calls += 1
+        now = datetime.now(timezone.utc)
+        return {
+            "service": "r2d2-vehicle-api",
+            "action": "stop",
+            "target_rpm": 0,
+            "current_rpm": 0,
+            "detail": "All motors ramped down to 0 rpm",
+            "timestamp": now,
+        }
 
     def snapshot(self) -> dict:
         now = datetime.now(timezone.utc)
@@ -68,3 +96,31 @@ def test_status_endpoint() -> None:
     assert payload["motor_ids"]["right"] == [1, 2]
     assert payload["motor_feedback"][0]["motor_id"] == 1
     assert payload["motor_feedback"][0]["rpm"] is None
+
+
+def test_start_motors_endpoint() -> None:
+    service = FakeVehicleStatusService()
+    app = create_app(service)
+
+    with TestClient(app) as client:
+        response = client.post("/motors/start", json={"rpm": 120})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == "start"
+    assert payload["target_rpm"] == 120
+    assert service.started_rpms == [120]
+
+
+def test_stop_motors_endpoint() -> None:
+    service = FakeVehicleStatusService()
+    app = create_app(service)
+
+    with TestClient(app) as client:
+        response = client.post("/motors/stop")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == "stop"
+    assert payload["current_rpm"] == 0
+    assert service.stop_calls == 1

@@ -31,3 +31,16 @@ class VehicleStatusResponse(BaseModel):
     motor_ids: dict[str, list[int]]
     components: dict[str, ComponentStatus]
     motor_feedback: list[MotorFeedback]
+
+
+class StartMotorsRequest(BaseModel):
+    rpm: int
+
+
+class MotorCommandResponse(BaseModel):
+    service: str
+    action: str
+    target_rpm: int
+    current_rpm: int
+    detail: str
+    timestamp: datetime
