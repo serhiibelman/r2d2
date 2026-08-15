@@ -32,6 +32,10 @@ Available endpoints:
 2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
 3. `POST /motors/start` - ramp all motors to a requested base RPM.
 4. `POST /motors/stop` - ramp all motors down to zero.
+5. `GET /camera/stream` - live MJPEG video from the RPi Camera (B).
+6. `GET /camera/snapshot` - single JPEG frame.
+7. `GET /camera/status` - camera state, resolution, framerate and viewer count.
+8. `POST /camera/start` / `POST /camera/stop` - hold the camera open or release the sensor.
 
 Example:
 
@@ -51,7 +55,52 @@ Notes:
 4. If another process already owns the motor or FC serial port, the API will report that component as unavailable and motor commands can fail with `503`.
 
 
-## 5. Vehicle control with gamepad
+## 5. Camera stream
+
+The RPi Camera (B) (OV5647) is driven through `picamera2`/`libcamera`. It ships with
+Raspberry Pi OS Bookworm and is **not** installed from `requirements.txt`, because it
+needs the system libcamera stack and is not usable on the laptop side:
+
+```
+sudo apt install -y python3-picamera2
+```
+
+The venv on the Pi must be able to see it:
+
+```
+python3 -m venv --system-site-packages ~/r2d2/venv
+```
+
+Check the camera is detected before starting the API: `rpicam-hello --list-cameras`.
+
+Watch the stream in a browser, or embed it anywhere an image can go:
+
+```html
+<img src="http://<vehicle-host>:8000/camera/stream" alt="R2D2 camera">
+```
+
+```bash
+curl http://<vehicle-host>:8000/camera/snapshot -o frame.jpg
+curl http://<vehicle-host>:8000/camera/status
+curl -X POST http://<vehicle-host>:8000/camera/stop
+```
+
+Notes:
+
+1. The camera opens on the first `/camera/stream` or `/camera/snapshot` request, so the
+   sensor stays powered down while nobody is watching. `POST /camera/start` warms it up
+   ahead of time and `POST /camera/stop` releases it.
+2. All viewers share one capture pipeline and always receive the newest frame; a slow
+   viewer drops frames instead of holding up capture or the motor loop.
+3. `CAMERA_MAX_CLIENTS` (default 4) caps concurrent viewers; extra ones get `503`.
+4. Resolution, framerate and JPEG quality come from the `CAMERA_*` variables in `.env`.
+   640x480 at 20 fps is a good starting point for the OV5647 over Wi-Fi.
+5. MJPEG is deliberately simple - every browser plays it with no JavaScript and latency
+   stays low on a LAN. It costs more bandwidth than H.264; if that becomes a problem the
+   next step is WebRTC, which needs a signalling server and a JS client.
+
+
+## 6. Vehicle control with gamepad
 
 See `docs/gamepad-control.md` for the operator flow and control mapping.
 

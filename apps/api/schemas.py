@@ -33,6 +33,28 @@ class VehicleStatusResponse(BaseModel):
     motor_feedback: list[MotorFeedback]
 
 
+class CameraStatusResponse(BaseModel):
+    service: str
+    timestamp: datetime
+    running: bool
+    clients: int
+    width: int
+    height: int
+    framerate: int
+    jpeg_quality: int
+    frames_captured: int
+    last_frame_at: datetime | None
+    component: ComponentStatus
+
+
+class CameraCommandResponse(BaseModel):
+    service: str
+    action: str
+    running: bool
+    detail: str
+    timestamp: datetime
+
+
 class StartMotorsRequest(BaseModel):
     rpm: int
 
