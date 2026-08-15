@@ -42,6 +42,7 @@ class CameraStatusResponse(BaseModel):
     height: int
     framerate: int
     jpeg_quality: int
+    encoder: str | None
     frames_captured: int
     last_frame_at: datetime | None
     component: ComponentStatus

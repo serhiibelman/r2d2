@@ -20,3 +20,6 @@ CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 CAMERA_FRAMERATE = int(os.getenv("CAMERA_FRAMERATE", "20"))
 CAMERA_JPEG_QUALITY = int(os.getenv("CAMERA_JPEG_QUALITY", "80"))
 CAMERA_MAX_CLIENTS = int(os.getenv("CAMERA_MAX_CLIENTS", "4"))
+# auto = hardware JPEG if the board has one, software otherwise.
+CAMERA_ENCODER = os.getenv("CAMERA_ENCODER", "auto").strip().lower()
+CAMERA_BUFFER_COUNT = int(os.getenv("CAMERA_BUFFER_COUNT", "2"))

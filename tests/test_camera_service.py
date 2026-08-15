@@ -8,11 +8,23 @@ class FakeCameraBackend:
 
     instances: list["FakeCameraBackend"] = []
 
-    def __init__(self, *, width: int, height: int, framerate: int, jpeg_quality: int):
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+        framerate: int,
+        jpeg_quality: int,
+        encoder: str = "auto",
+        buffer_count: int = 2,
+    ):
         self.width = width
         self.height = height
         self.framerate = framerate
         self.jpeg_quality = jpeg_quality
+        self.encoder = encoder
+        self.buffer_count = buffer_count
+        self.active_encoder = "software"
         self.started = False
         self.fail_on_start: Exception | None = None
         self._on_frame = None
@@ -91,6 +103,17 @@ def _failing_factory(**kwargs):
     backend = FakeCameraBackend(**kwargs)
     backend.fail_on_start = RuntimeError("no camera detected")
     return backend
+
+
+def test_encoder_settings_reach_the_backend_and_the_status() -> None:
+    service = make_service(encoder="hardware", buffer_count=3)
+    service.start()
+    backend = FakeCameraBackend.instances[0]
+
+    assert backend.encoder == "hardware"
+    assert backend.buffer_count == 3
+    # The backend reports what it actually negotiated, not what was requested.
+    assert service.snapshot()["encoder"] == "software"
 
 
 def test_next_frame_returns_the_latest_frame_and_drops_stale_ones() -> None:

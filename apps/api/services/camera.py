@@ -6,7 +6,9 @@ from typing import Any, Callable
 
 from apps.api.services.vehicle_status import ComponentSnapshot, utc_now
 from settings import (
+    CAMERA_BUFFER_COUNT,
     CAMERA_ENABLED,
+    CAMERA_ENCODER,
     CAMERA_FRAMERATE,
     CAMERA_HEIGHT,
     CAMERA_JPEG_QUALITY,
@@ -32,39 +34,92 @@ class _FrameSink(io.BufferedIOBase):
         return len(frame)
 
 
-class Picamera2Backend:
-    """MJPEG capture from the RPi Camera (B) (OV5647) through picamera2/libcamera."""
+HARDWARE_ENCODER = "hardware"
+SOFTWARE_ENCODER = "software"
 
-    def __init__(self, *, width: int, height: int, framerate: int, jpeg_quality: int):
+
+class Picamera2Backend:
+    """
+    MJPEG capture from the RPi Camera (B) (OV5647) through picamera2/libcamera.
+
+    Prefers the VideoCore JPEG encoder over the software one. That matters on
+    ARMv6 boards such as the Pi 1, where software encoding has no SIMD to lean
+    on and would eat the only core the motor loop also runs on. Boards without a
+    hardware JPEG block (Pi 5) fall back to software automatically.
+    """
+
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+        framerate: int,
+        jpeg_quality: int,
+        encoder: str = CAMERA_ENCODER,
+        buffer_count: int = CAMERA_BUFFER_COUNT,
+    ):
         self.width = width
         self.height = height
         self.framerate = framerate
         self.jpeg_quality = jpeg_quality
+        self.encoder = encoder
+        self.buffer_count = buffer_count
+        self.active_encoder: str | None = None
         self._camera = None
 
     def start(self, on_frame: Callable[[bytes], None]) -> None:
         # Imported lazily so the API still boots on machines without libcamera.
         from picamera2 import Picamera2
-        from picamera2.encoders import JpegEncoder
+        from picamera2.encoders import JpegEncoder, MJPEGEncoder
         from picamera2.outputs import FileOutput
 
         frame_duration = int(1_000_000 / self.framerate)
-        camera = Picamera2()
-        camera.configure(
-            camera.create_video_configuration(
-                main={"size": (self.width, self.height)},
-                controls={"FrameDurationLimits": (frame_duration, frame_duration)},
-            )
-        )
-        try:
-            camera.start_recording(
-                JpegEncoder(q=self.jpeg_quality),
-                FileOutput(_FrameSink(on_frame)),
-            )
-        except BACKEND_ERRORS:
-            camera.close()
-            raise
-        self._camera = camera
+        sink = _FrameSink(on_frame)
+        last_error: Exception | None = None
+
+        for mode in self._encoder_candidates():
+            hardware = mode == HARDWARE_ENCODER
+            main: dict[str, Any] = {"size": (self.width, self.height)}
+            if hardware:
+                # The V4L2 encoder consumes YUV420 directly, which skips a colour
+                # conversion the Pi 1 cannot afford.
+                main["format"] = "YUV420"
+
+            camera = Picamera2()
+            try:
+                camera.configure(
+                    camera.create_video_configuration(
+                        main=main,
+                        buffer_count=self.buffer_count,
+                        controls={"FrameDurationLimits": (frame_duration, frame_duration)},
+                    )
+                )
+                camera.start_recording(
+                    MJPEGEncoder(bitrate=self._bitrate())
+                    if hardware
+                    else JpegEncoder(q=self.jpeg_quality),
+                    FileOutput(sink),
+                )
+            except BACKEND_ERRORS as exc:
+                last_error = exc
+                camera.close()
+                continue
+
+            self._camera = camera
+            self.active_encoder = mode
+            return
+
+        raise last_error if last_error else RuntimeError("No usable JPEG encoder")
+
+    def _encoder_candidates(self) -> list[str]:
+        if self.encoder in (HARDWARE_ENCODER, SOFTWARE_ENCODER):
+            return [self.encoder]
+        return [HARDWARE_ENCODER, SOFTWARE_ENCODER]
+
+    def _bitrate(self) -> int:
+        """Approximate the requested JPEG quality as a bitrate for the V4L2 encoder."""
+        bits_per_pixel = (self.jpeg_quality / 100) * 1.2
+        return max(500_000, int(self.width * self.height * self.framerate * bits_per_pixel))
 
     def stop(self) -> None:
         camera, self._camera = self._camera, None
@@ -93,6 +148,8 @@ class CameraService:
         framerate: int = CAMERA_FRAMERATE,
         jpeg_quality: int = CAMERA_JPEG_QUALITY,
         max_clients: int = CAMERA_MAX_CLIENTS,
+        encoder: str = CAMERA_ENCODER,
+        buffer_count: int = CAMERA_BUFFER_COUNT,
         frame_timeout_seconds: float = 5.0,
         backend_factory: Callable[..., Picamera2Backend] = Picamera2Backend,
     ):
@@ -102,7 +159,10 @@ class CameraService:
         self.framerate = framerate
         self.jpeg_quality = jpeg_quality
         self.max_clients = max_clients
+        self.encoder = encoder
+        self.buffer_count = buffer_count
         self.frame_timeout_seconds = frame_timeout_seconds
+        self.active_encoder: str | None = None
         self._backend_factory = backend_factory
         self._backend: Picamera2Backend | None = None
         self._state_lock = RLock()
@@ -158,6 +218,8 @@ class CameraService:
                 height=self.height,
                 framerate=self.framerate,
                 jpeg_quality=self.jpeg_quality,
+                encoder=self.encoder,
+                buffer_count=self.buffer_count,
             )
             try:
                 backend.start(self._publish_frame)
@@ -165,11 +227,15 @@ class CameraService:
                 self._set_component(connected=False, detail=str(exc))
                 raise RuntimeError(f"Camera is unavailable: {exc}") from exc
 
+            self.active_encoder = getattr(backend, "active_encoder", None)
             self._backend = backend
             self._running = True
             self._set_component(
                 connected=True,
-                detail=f"Capturing {self.width}x{self.height} at {self.framerate} fps",
+                detail=(
+                    f"Capturing {self.width}x{self.height} at {self.framerate} fps "
+                    f"({self.active_encoder} JPEG encoder)"
+                ),
             )
 
     def acquire_client_slot(self) -> None:
@@ -247,6 +313,7 @@ class CameraService:
             "height": self.height,
             "framerate": self.framerate,
             "jpeg_quality": self.jpeg_quality,
+            "encoder": self.active_encoder,
             "frames_captured": frames_captured,
             "last_frame_at": last_frame_at,
             "component": {

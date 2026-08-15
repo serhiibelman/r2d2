@@ -120,6 +120,7 @@ class FakeCameraService:
             "height": 480,
             "framerate": 20,
             "jpeg_quality": 80,
+            "encoder": "hardware",
             "frames_captured": 12,
             "last_frame_at": now,
             "component": {

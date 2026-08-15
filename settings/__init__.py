@@ -1,6 +1,8 @@
 from .constance import RIGHT_SIDE, LEFT_SIDE
 from .environment import (
+    CAMERA_BUFFER_COUNT,
     CAMERA_ENABLED,
+    CAMERA_ENCODER,
     CAMERA_FRAMERATE,
     CAMERA_HEIGHT,
     CAMERA_JPEG_QUALITY,

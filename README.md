@@ -94,10 +94,26 @@ Notes:
    viewer drops frames instead of holding up capture or the motor loop.
 3. `CAMERA_MAX_CLIENTS` (default 4) caps concurrent viewers; extra ones get `503`.
 4. Resolution, framerate and JPEG quality come from the `CAMERA_*` variables in `.env`.
-   640x480 at 20 fps is a good starting point for the OV5647 over Wi-Fi.
 5. MJPEG is deliberately simple - every browser plays it with no JavaScript and latency
    stays low on a LAN. It costs more bandwidth than H.264; if that becomes a problem the
    next step is WebRTC, which needs a signalling server and a JS client.
+
+### Raspberry Pi 1 Model B+
+
+The Pi 1 is the weakest board picamera2 supports, so the defaults in `.env.example` are
+sized for it (320x240 at 10 fps):
+
+1. **32-bit Raspberry Pi OS only.** ARMv6 cannot run the 64-bit images. Use the Lite
+   image - 512 MB shared with the GPU leaves no room for a desktop.
+2. **The hardware JPEG encoder matters here.** `CAMERA_ENCODER=auto` tries the VideoCore
+   encoder first and only falls back to software. Software JPEG has no SIMD to use on
+   ARMv6 and would eat the single core the motor loop runs on. `GET /camera/status`
+   reports which encoder is actually in use.
+3. **Camera buffers come from CMA**, not the legacy `gpu_mem` split. If the camera fails
+   to allocate buffers, raise it in `/boot/firmware/config.txt`:
+   `dtoverlay=vc4-kms-v3d,cma-128`. `CAMERA_BUFFER_COUNT=2` keeps the footprint small.
+4. Raise resolution and framerate gradually while watching `top` and `/camera/status`.
+   USB Wi-Fi is usually the next bottleneck after the CPU.
 
 
 ## 6. Vehicle control with gamepad
