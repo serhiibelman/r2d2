@@ -7,8 +7,8 @@ class AxesState:
     left_y: float
     right_x: float
     right_y: float
-    trigger_left: float
-    trigger_right: float
+    trigger_left: bool
+    trigger_right: bool
 
 
 @dataclass
@@ -19,10 +19,10 @@ class ButtonsState:
     y: bool
     lb: bool
     rb: bool
-    lt: bool
-    rt: bool
     l: bool
     r: bool
+    lt: bool = False
+    rt: bool = False
 
 
 @dataclass
