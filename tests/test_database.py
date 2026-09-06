@@ -7,8 +7,8 @@ from sqlalchemy.exc import OperationalError
 
 from apps.api.dependencies import get_telemetry_service
 from apps.api.services.telemetry import TelemetryService
-from apps.db import Database, DatabaseConfig, DatabaseHealthMonitor
-from apps.db.session import normalise_url
+from lib.db import Database, DatabaseConfig, DatabaseHealthMonitor
+from lib.db.session import normalise_url
 
 
 @pytest.fixture()

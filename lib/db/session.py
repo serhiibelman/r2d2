@@ -10,7 +10,7 @@ from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.db.config import DatabaseConfig
+from lib.db.config import DatabaseConfig
 
 logger = logging.getLogger(__name__)
 

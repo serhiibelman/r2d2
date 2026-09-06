@@ -1,3 +1,24 @@
+## 0. Project layout
+
+```
+apps/                  processes - each one is started by a start_*.sh
+├── api/               FastAPI service on the vehicle
+├── vehicle_control/   motor loop on the vehicle
+└── controller/        gamepad reader on the laptop
+lib/                   libraries - imported, never started
+├── db/                SQLAlchemy engine, session, models
+├── ddsm115/           motor driver
+├── gamepad/           UDP control protocol shared by controller and vehicle
+└── common/            formatting and conversion helpers
+settings/              environment configuration
+migrations/            Alembic revisions
+tests/
+```
+
+The rule is one-directional: `apps/*` may import `lib/*`, and `lib/*` never
+imports `apps/*`. A package under `apps/` owns a process; anything two
+processes need lives in `lib/`.
+
 ## 1. Install system dependencies
 
 ```

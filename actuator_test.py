@@ -2,8 +2,8 @@ import argparse
 import time
 from tqdm import tqdm
 
-from apps.common.formatting import print_info, print_warning, print_error, print_success
-from apps.ddsm115 import DDS115
+from lib.common.formatting import print_info, print_warning, print_error, print_success
+from lib.ddsm115 import DDS115
 
 RIGHT_SIDE = [1, 2]
 LEFT_SIDE = [3, 4]

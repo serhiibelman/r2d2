@@ -12,7 +12,7 @@ from fastapi import Depends, HTTPException, Request, status
 from apps.api.services.camera import CameraService
 from apps.api.services.telemetry import TelemetryService
 from apps.api.services.vehicle_status import VehicleStatusService
-from apps.db import DatabaseHealthMonitor
+from lib.db import DatabaseHealthMonitor
 
 
 def get_vehicle_status_service(request: Request) -> VehicleStatusService:

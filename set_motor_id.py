@@ -1,7 +1,7 @@
 import sys
 
-from apps.common.formatting import print_info, print_error, print_success
-from apps.ddsm115 import DDS115
+from lib.common.formatting import print_info, print_error, print_success
+from lib.ddsm115 import DDS115
 
 
 def main():

@@ -5,8 +5,8 @@ from typing import Any, Sequence
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 
-from apps.db import VehicleStatusEvent
-from apps.db.session import Database
+from lib.db import VehicleStatusEvent
+from lib.db.session import Database
 
 MAX_LIMIT = 500
 

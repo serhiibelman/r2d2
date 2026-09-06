@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from apps.api.main import create_app
-from apps.db import Database, DatabaseConfig
+from lib.db import Database, DatabaseConfig
 
 
 class FakeVehicleStatusService:

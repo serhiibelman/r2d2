@@ -2,9 +2,9 @@ import socket
 import json
 from typing import Optional
 
-from apps.controller.state import ControllerState, AxesState, ButtonsState
+from lib.gamepad.state import ControllerState, AxesState, ButtonsState
 
-from apps.common.formatting import print_error
+from lib.common.formatting import print_error
 
 
 class UDPReceiver:

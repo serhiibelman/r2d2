@@ -1,6 +1,6 @@
 import socket
 import json
-from apps.common.formatting import print_warning
+from lib.common.formatting import print_warning
 
 
 class UDPSender:

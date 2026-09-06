@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.db.base import Base
+from lib.db.base import Base
 
 
 class VehicleStatusEvent(Base):

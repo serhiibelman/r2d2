@@ -1,7 +1,7 @@
 import time
-from apps.common.formatting import print_info
+from lib.common.formatting import print_info
 from apps.controller.controller_reader import ControllerReader
-from apps.controller.udp_sender import UDPSender
+from lib.gamepad.udp_sender import UDPSender
 
 UDP_HOST = "raspberrypi.local"
 UDP_PORT = 5005

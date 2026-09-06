@@ -10,8 +10,8 @@ from apps.api.routes.telemetry import router as telemetry_router
 from apps.api.services.camera import CameraService
 from apps.api.services.telemetry import TelemetryService
 from apps.api.services.vehicle_status import VehicleStatusService
-from apps.db import DatabaseHealthMonitor, database as default_database
-from apps.db.session import Database
+from lib.db import DatabaseHealthMonitor, database as default_database
+from lib.db.session import Database
 
 
 def create_app(

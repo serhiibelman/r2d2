@@ -1,7 +1,7 @@
-from apps.controller.udp_receiver import UDPReceiver
-from apps.ddsm115 import DDS115
+from lib.gamepad.udp_receiver import UDPReceiver
+from lib.ddsm115 import DDS115
 from apps.vehicle_control.vehicle_controller import VehicleController
-from apps.common.formatting import print_error
+from lib.common.formatting import print_error
 
 
 def main():

@@ -1,8 +1,8 @@
 import time
 
 import pygame
-from apps.common.formatting import print_info, print_error
-from apps.controller.state import ControllerState, AxesState, ButtonsState
+from lib.common.formatting import print_info, print_error
+from lib.gamepad.state import ControllerState, AxesState, ButtonsState
 
 
 class ControllerReader:

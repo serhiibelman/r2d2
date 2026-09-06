@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event, Lock, Thread
 
-from apps.db.session import NOT_CONFIGURED, Database
+from lib.db.session import NOT_CONFIGURED, Database
 
 
 def utc_now() -> datetime:

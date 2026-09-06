@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from apps.api.dependencies import TelemetryServiceDep, VehicleStatusServiceDep
 from apps.api.schemas import VehicleStatusEventResponse
 from apps.api.services.telemetry import MAX_LIMIT
-from apps.db import VehicleStatusEvent
+from lib.db import VehicleStatusEvent
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 

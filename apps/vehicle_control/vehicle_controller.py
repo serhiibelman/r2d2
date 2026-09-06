@@ -1,10 +1,10 @@
 import time
 from typing import Optional
 
-from apps.common.formatting import print_info, print_warning
-from apps.controller.udp_receiver import UDPReceiver
-from apps.controller.state import ControllerState
-from apps.ddsm115 import DDS115
+from lib.common.formatting import print_info, print_warning
+from lib.gamepad.udp_receiver import UDPReceiver
+from lib.gamepad.state import ControllerState
+from lib.ddsm115 import DDS115
 from settings import RIGHT_SIDE, LEFT_SIDE
 
 MAX_RPM = 200

@@ -2,7 +2,7 @@ import shutil
 
 from pathlib import Path
 
-from apps.common.formatting import print_success, print_error
+from lib.common.formatting import print_success, print_error
 
 env_example = Path(".env.example")
 env_file = Path(".env")

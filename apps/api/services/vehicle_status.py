@@ -9,7 +9,7 @@ from typing import Any, Callable
 from pymavlink import mavutil
 from serial import SerialException
 
-from apps.ddsm115 import DDS115
+from lib.ddsm115 import DDS115
 from apps.vehicle_control.vehicle_controller import LOOP_INTERVAL, MAX_RPM, VehicleController
 from settings import DEVICE, FC_BAUDRATE, FC_DEVICE, LEFT_SIDE, RIGHT_SIDE
 

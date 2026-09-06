@@ -8,8 +8,8 @@ import serial
 import serial.rs485
 
 from settings import DEVICE
-from apps.common.converters import int16_to_bytes
-from apps.common.formatting import print_info, print_error, print_warning
+from lib.common.converters import int16_to_bytes
+from lib.common.formatting import print_info, print_error, print_warning
 from .motor_frame import Frame
 
 
