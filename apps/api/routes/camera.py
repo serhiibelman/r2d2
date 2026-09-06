@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
+from apps.api.dependencies import CameraServiceDep
 from apps.api.schemas import CameraCommandResponse, CameraStatusResponse
 
 router = APIRouter(prefix="/camera", tags=["camera"])
@@ -44,8 +45,7 @@ async def _multipart(request: Request, service) -> AsyncIterator[bytes]:
 
 
 @router.get("/stream")
-def stream(request: Request) -> StreamingResponse:
-    service = request.app.state.camera_service
+def stream(request: Request, service: CameraServiceDep) -> StreamingResponse:
     try:
         service.acquire_client_slot()
     except RuntimeError as exc:
@@ -61,8 +61,7 @@ def stream(request: Request) -> StreamingResponse:
 
 
 @router.get("/snapshot")
-def snapshot(request: Request) -> Response:
-    service = request.app.state.camera_service
+def snapshot(service: CameraServiceDep) -> Response:
     try:
         frame = service.capture_frame()
     except RuntimeError as exc:
@@ -74,13 +73,12 @@ def snapshot(request: Request) -> Response:
 
 
 @router.get("/status", response_model=CameraStatusResponse)
-def camera_status(request: Request) -> CameraStatusResponse:
-    return CameraStatusResponse(**request.app.state.camera_service.snapshot())
+def camera_status(service: CameraServiceDep) -> CameraStatusResponse:
+    return CameraStatusResponse(**service.snapshot())
 
 
 @router.post("/start", response_model=CameraCommandResponse)
-def start_camera(request: Request) -> CameraCommandResponse:
-    service = request.app.state.camera_service
+def start_camera(service: CameraServiceDep) -> CameraCommandResponse:
     try:
         result = service.start()
     except RuntimeError as exc:
@@ -92,8 +90,7 @@ def start_camera(request: Request) -> CameraCommandResponse:
 
 
 @router.post("/stop", response_model=CameraCommandResponse)
-def stop_camera(request: Request) -> CameraCommandResponse:
-    service = request.app.state.camera_service
+def stop_camera(service: CameraServiceDep) -> CameraCommandResponse:
     try:
         result = service.stop()
     except RuntimeError as exc:

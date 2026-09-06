@@ -28,7 +28,10 @@ uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 
 Available endpoints:
 
-1. `GET /health` - API and hardware probe health.
+1. `GET /health` - API and hardware probe health, plus an advisory `database`
+   field. The database sits outside `components` on purpose: `status` is
+   computed from `components` only, so an unreachable database never marks the
+   vehicle unhealthy.
 2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
 3. `POST /motors/start` - ramp all motors to a requested base RPM.
 4. `POST /motors/stop` - ramp all motors down to zero.
@@ -36,6 +39,8 @@ Available endpoints:
 6. `GET /camera/snapshot` - single JPEG frame.
 7. `GET /camera/status` - camera state, resolution, framerate and viewer count.
 8. `POST /camera/start` / `POST /camera/stop` - hold the camera open or release the sensor.
+9. `POST /telemetry/snapshot` - store the current snapshot in Postgres.
+10. `GET /telemetry?limit=50` - read stored snapshots, newest first.
 
 Example:
 
@@ -116,7 +121,97 @@ sized for it (320x240 at 10 fps):
    USB Wi-Fi is usually the next bottleneck after the CPU.
 
 
-## 6. Vehicle control with gamepad
+## 6. Database (Postgres on AWS)
+
+SQLAlchemy 2.0 + Alembic, talking to RDS over the `psycopg` (v3) driver. The
+database is **optional**: with `DATABASE_URL` empty the vehicle boots and drives
+exactly as before, `/health` reports the `database` component as not configured
+and `/telemetry` answers `503`. Nothing on the driving path waits on the network.
+
+### Install on the Pi 1 Model B+ (ARMv6)
+
+PyPI has no 32-bit ARM wheels for any of the C-based Postgres drivers, so the Pi
+uses the pure-Python psycopg build, which needs no compiler - only libpq:
+
+```
+sudo apt install libpq5
+pip install -r requirements.txt
+```
+
+Nothing here is compiled on the Pi:
+
+1. `SQLAlchemy` ships a `py3-none-any` wheel and only pulls `greenlet` on 64-bit
+   platforms, so on ARMv6 pip takes the pure-Python path.
+2. `alembic` is pure Python.
+3. `requirements.txt` selects `psycopg[binary]` on laptops and CI, and plain
+   `psycopg` (pure Python, uses the system libpq) on `armv6l`/`armv7l`.
+4. `postgresql://` URLs are rewritten to `postgresql+psycopg://` at runtime, so
+   SQLAlchemy never reaches for psycopg2 - which *would* have to be compiled.
+
+The pure-Python driver is slower per query than the C one. For a few telemetry
+rows on a single-core 700 MHz board that is not the bottleneck; the uplink is.
+
+### Configure
+
+Set in `.env`:
+
+```
+DATABASE_URL="postgresql+psycopg://r2d2:<password>@<instance>.<id>.<region>.rds.amazonaws.com:5432/r2d2"
+DB_SSLMODE="require"
+```
+
+`DB_CONNECT_TIMEOUT`, `DB_STATEMENT_TIMEOUT_MS`, `DB_POOL_SIZE`,
+`DB_MAX_OVERFLOW` and `DB_POOL_RECYCLE` are tuned in `.env.example` for a
+vehicle on flaky Wi-Fi: small pool, short timeouts, `pool_pre_ping` on, and
+connections recycled every 5 minutes so an RDS failover does not leave the API
+holding dead sockets. All of them are fields of `DatabaseConfig`
+(`apps/db/config.py`), which is what a `Database` instance actually reads - the
+environment only supplies the defaults.
+
+`/health` never opens a connection itself. A background monitor probes the
+database every `DB_HEALTH_INTERVAL` seconds (default 30) and `/health` serves
+the last completed probe with that probe's own timestamp, so the endpoint stays
+fast exactly when the uplink is down. Driver errors go to the API log; the
+response carries only the exception class, because `/health` is unauthenticated
+and the raw text names the RDS endpoint and the database user.
+
+For certificate verification, download the RDS CA bundle and point
+`DB_SSLROOTCERT` at it, then set `DB_SSLMODE="verify-full"`.
+
+### Migrations
+
+Run them from a laptop that can reach RDS, not from the vehicle:
+
+```
+alembic revision --autogenerate -m "what changed"
+alembic upgrade head
+alembic downgrade -1
+```
+
+`alembic.ini` holds no credentials - `migrations/env.py` reads `DATABASE_URL`
+from `.env`, or takes `alembic -x url=postgresql+psycopg://... upgrade head`.
+
+### Tests
+
+The database tests run without Postgres. To also exercise the round trip:
+
+```
+docker run -d --name r2d2-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=r2d2 -p 55432:5432 postgres:16-alpine
+export TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/r2d2"
+export DB_SSLMODE=disable
+alembic upgrade head && pytest
+```
+
+Notes:
+
+1. `psycopg` is LGPL-3.0 licensed (SQLAlchemy and Alembic are MIT). It is used
+   as an unmodified library, which LGPL allows, but flag it if a client contract
+   restricts copyleft dependencies.
+2. RDS should not be reachable from the public internet. Put the vehicle on a
+   VPN or a private uplink into the VPC rather than opening the security group.
+
+
+## 7. Vehicle control with gamepad
 
 See `docs/gamepad-control.md` for the operator flow and control mapping.
 

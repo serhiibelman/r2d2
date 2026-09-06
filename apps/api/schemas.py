@@ -20,7 +20,10 @@ class VehicleHealthResponse(BaseModel):
     status: str
     service: str
     timestamp: datetime
+    # Hardware only - `status` is computed from these.
     components: dict[str, ComponentStatus]
+    # Advisory: the vehicle is healthy without a database.
+    database: ComponentStatus
 
 
 class VehicleStatusResponse(BaseModel):
@@ -31,6 +34,17 @@ class VehicleStatusResponse(BaseModel):
     motor_ids: dict[str, list[int]]
     components: dict[str, ComponentStatus]
     motor_feedback: list[MotorFeedback]
+
+
+class VehicleStatusEventResponse(BaseModel):
+    id: int
+    recorded_at: datetime
+    service: str
+    overall_status: str
+    motor_device: str | None
+    fc_device: str | None
+    components: dict
+    motor_feedback: list
 
 
 class CameraStatusResponse(BaseModel):

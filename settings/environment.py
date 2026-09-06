@@ -23,3 +23,18 @@ CAMERA_MAX_CLIENTS = int(os.getenv("CAMERA_MAX_CLIENTS", "4"))
 # auto = hardware JPEG if the board has one, software otherwise.
 CAMERA_ENCODER = os.getenv("CAMERA_ENCODER", "auto").strip().lower()
 CAMERA_BUFFER_COUNT = int(os.getenv("CAMERA_BUFFER_COUNT", "2"))
+
+# Postgres on AWS (RDS). Empty DATABASE_URL disables the database entirely so
+# the vehicle keeps driving with no connectivity.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require").strip()
+DB_SSLROOTCERT = os.getenv("DB_SSLROOTCERT", "").strip()
+DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
+DB_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "5000"))
+# One core and 512 MB on the Pi 1: a couple of connections is plenty.
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "2"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "0"))
+DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "300"))
+DB_ECHO = os.getenv("DB_ECHO", "false").strip().lower() in {"1", "true", "yes"}
+# How often the background monitor probes the database for /health.
+DB_HEALTH_INTERVAL = float(os.getenv("DB_HEALTH_INTERVAL", "30"))

@@ -1,13 +1,15 @@
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 
+from apps.api.dependencies import VehicleStatusServiceDep
 from apps.api.schemas import MotorCommandResponse, StartMotorsRequest
 
 router = APIRouter(prefix="/motors", tags=["motors"])
 
 
 @router.post("/start", response_model=MotorCommandResponse)
-def start_motors(request: Request, payload: StartMotorsRequest) -> MotorCommandResponse:
-    service = request.app.state.vehicle_status_service
+def start_motors(
+    service: VehicleStatusServiceDep, payload: StartMotorsRequest
+) -> MotorCommandResponse:
     try:
         result = service.start_motors(payload.rpm)
     except ValueError as exc:
@@ -21,8 +23,7 @@ def start_motors(request: Request, payload: StartMotorsRequest) -> MotorCommandR
 
 
 @router.post("/stop", response_model=MotorCommandResponse)
-def stop_motors(request: Request) -> MotorCommandResponse:
-    service = request.app.state.vehicle_status_service
+def stop_motors(service: VehicleStatusServiceDep) -> MotorCommandResponse:
     try:
         result = service.stop_motors()
     except RuntimeError as exc:
