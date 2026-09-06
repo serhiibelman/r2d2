@@ -11,7 +11,6 @@ from .environment import (
     DATABASE_URL,
     DB_CONNECT_TIMEOUT,
     DB_ECHO,
-    DB_HEALTH_INTERVAL,
     DB_MAX_OVERFLOW,
     DB_POOL_RECYCLE,
     DB_POOL_SIZE,

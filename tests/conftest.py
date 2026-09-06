@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 import pytest
 
 from apps.api.main import create_app
-from lib.db import Database, DatabaseConfig
 
 
 class FakeVehicleStatusService:
@@ -159,23 +158,11 @@ def make_camera_service():
 
 
 @pytest.fixture()
-def offline_database() -> Database:
-    """A database that is deliberately not configured.
-
-    Every app built in the tests gets this unless it asks for another one, so a
-    developer's own DATABASE_URL in .env can never pull the suite onto a real
-    database.
-    """
-    return Database(DatabaseConfig(url=""))
-
-
-@pytest.fixture()
-def build_app(vehicle_service, camera_service, offline_database):
-    def _build(vehicle=None, camera=None, db=None):
+def build_app(vehicle_service, camera_service):
+    def _build(vehicle=None, camera=None):
         return create_app(
             vehicle_status_service=vehicle or vehicle_service,
             camera_service=camera or camera_service,
-            db=db or offline_database,
         )
 
     return _build

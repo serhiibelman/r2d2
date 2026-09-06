@@ -3,7 +3,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import pool
 
-from lib.db import Base  # noqa: F401  (imports every model onto the metadata)
+# Base carries the metadata Alembic compares against. There are no models
+# yet, so autogenerate produces an empty revision until one is added here.
+from lib.db import Base
 from lib.db.session import database
 
 config = context.config

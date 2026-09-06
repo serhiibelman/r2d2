@@ -6,7 +6,7 @@ apps/                  processes - each one is started by a start_*.sh
 ├── vehicle_control/   motor loop on the vehicle
 └── controller/        gamepad reader on the laptop
 lib/                   libraries - imported, never started
-├── db/                SQLAlchemy engine, session, models
+├── db/                SQLAlchemy engine, session, config
 ├── ddsm115/           motor driver
 ├── gamepad/           UDP control protocol shared by controller and vehicle
 └── common/            formatting and conversion helpers
@@ -49,10 +49,7 @@ uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 
 Available endpoints:
 
-1. `GET /health` - API and hardware probe health, plus an advisory `database`
-   field. The database sits outside `components` on purpose: `status` is
-   computed from `components` only, so an unreachable database never marks the
-   vehicle unhealthy.
+1. `GET /health` - API and hardware probe health.
 2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
 3. `POST /motors/start` - ramp all motors to a requested base RPM.
 4. `POST /motors/stop` - ramp all motors down to zero.
@@ -60,8 +57,6 @@ Available endpoints:
 6. `GET /camera/snapshot` - single JPEG frame.
 7. `GET /camera/status` - camera state, resolution, framerate and viewer count.
 8. `POST /camera/start` / `POST /camera/stop` - hold the camera open or release the sensor.
-9. `POST /telemetry/snapshot` - store the current snapshot in Postgres.
-10. `GET /telemetry?limit=50` - read stored snapshots, newest first.
 
 Example:
 
@@ -144,10 +139,23 @@ sized for it (320x240 at 10 fps):
 
 ## 6. Database (Postgres on AWS)
 
-SQLAlchemy 2.0 + Alembic, talking to RDS over the `psycopg` (v3) driver. The
-database is **optional**: with `DATABASE_URL` empty the vehicle boots and drives
-exactly as before, `/health` reports the `database` component as not configured
-and `/telemetry` answers `503`. Nothing on the driving path waits on the network.
+A connection layer only: SQLAlchemy 2.0 + Alembic talking to RDS over the
+`psycopg` (v3) driver. There is **no model and no migration yet** - the schema
+is still undecided, so `lib/db` gives you an engine, sessions and configuration
+and nothing that presumes a table. The API does not open a database connection
+anywhere yet; wiring it into `create_app` comes with the first model.
+
+```python
+from lib.db import Database
+
+db = Database()                      # reads DATABASE_URL from .env
+with db.session_scope() as session:  # commits on success, rolls back on error
+    ...
+```
+
+`Database()` with an empty `DATABASE_URL` is switched off rather than broken:
+`configured` is `False` and touching `engine` raises instead of silently
+connecting somewhere.
 
 ### Install on the Pi 1 Model B+ (ARMv6)
 
@@ -186,22 +194,27 @@ DB_SSLMODE="require"
 vehicle on flaky Wi-Fi: small pool, short timeouts, `pool_pre_ping` on, and
 connections recycled every 5 minutes so an RDS failover does not leave the API
 holding dead sockets. All of them are fields of `DatabaseConfig`
-(`apps/db/config.py`), which is what a `Database` instance actually reads - the
-environment only supplies the defaults.
-
-`/health` never opens a connection itself. A background monitor probes the
-database every `DB_HEALTH_INTERVAL` seconds (default 30) and `/health` serves
-the last completed probe with that probe's own timestamp, so the endpoint stays
-fast exactly when the uplink is down. Driver errors go to the API log; the
-response carries only the exception class, because `/health` is unauthenticated
-and the raw text names the RDS endpoint and the database user.
+(`lib/db/config.py`), which is what a `Database` instance actually reads - the
+environment only supplies the defaults, so a second database or a test
+container is a different config, not a different process environment.
 
 For certificate verification, download the RDS CA bundle and point
 `DB_SSLROOTCERT` at it, then set `DB_SSLMODE="verify-full"`.
 
+`Database.check()` runs `SELECT 1` and returns `(connected, detail)`. It blocks
+for up to `DB_CONNECT_TIMEOUT`, so keep it off a request path; the detail names
+only the exception class, because driver errors carry the RDS endpoint and the
+database user, and the full text goes to the log instead.
+
 ### Migrations
 
-Run them from a laptop that can reach RDS, not from the vehicle:
+`alembic.ini` and `migrations/` are set up and hold no credentials -
+`migrations/env.py` reads `DATABASE_URL` from `.env`, or takes
+`alembic -x url=postgresql+psycopg://... upgrade head`. `migrations/versions/`
+is empty until the first model lands in `lib/db`, so `alembic revision
+--autogenerate` would currently produce an empty revision.
+
+Run migrations from a laptop that can reach RDS, not from the vehicle:
 
 ```
 alembic revision --autogenerate -m "what changed"
@@ -209,18 +222,14 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-`alembic.ini` holds no credentials - `migrations/env.py` reads `DATABASE_URL`
-from `.env`, or takes `alembic -x url=postgresql+psycopg://... upgrade head`.
-
 ### Tests
 
-The database tests run without Postgres. To also exercise the round trip:
+`tests/test_database.py` covers the connection layer without a database. To also
+check a real connection:
 
 ```
 docker run -d --name r2d2-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=r2d2 -p 55432:5432 postgres:16-alpine
-export TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/r2d2"
-export DB_SSLMODE=disable
-alembic upgrade head && pytest
+TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/r2d2" pytest
 ```
 
 Notes:
