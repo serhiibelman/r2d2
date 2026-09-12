@@ -180,12 +180,31 @@ Nothing here is compiled on the Pi:
 The pure-Python driver is slower per query than the C one. For a few telemetry
 rows on a single-core 700 MHz board that is not the bottleneck; the uplink is.
 
+### The instance
+
+The database is provisioned in `r2d2-infrastructure`
+(`terraform/database.tf`), not by anything in this repo:
+
+| | |
+|---|---|
+| instance | `rover-db`, `db.t3.micro`, 20 GB autoscaling to 50 |
+| engine | Postgres 16 |
+| database / user | `rover` / `rover` (password from the `db_password` variable) |
+| region | `eu-central-1`, private subnets `rover-private-a` / `-b` |
+| exposure | `publicly_accessible = false`; the `rover-db-sg` group admits 5432 **only** from `rover-app-sg` |
+
+That last row is the one that decides how this repo talks to it: there is no
+public endpoint and no bastion, and the vehicle is not in the VPC. Today only
+things attached to `rover-app-sg` - the telemetry Lambda - can open a
+connection. See *Reaching the database* below before setting `DATABASE_URL` on
+the Pi and expecting it to work.
+
 ### Configure
 
 Set in `.env`:
 
 ```
-DATABASE_URL="postgresql+psycopg://r2d2:<password>@<instance>.<id>.<region>.rds.amazonaws.com:5432/r2d2"
+DATABASE_URL="postgresql+psycopg://rover:<password>@rover-db.<id>.eu-central-1.rds.amazonaws.com:5432/rover"
 DB_SSLMODE="require"
 ```
 
@@ -198,8 +217,13 @@ holding dead sockets. All of them are fields of `DatabaseConfig`
 environment only supplies the defaults, so a second database or a test
 container is a different config, not a different process environment.
 
-For certificate verification, download the RDS CA bundle and point
-`DB_SSLROOTCERT` at it, then set `DB_SSLMODE="verify-full"`.
+For certificate verification, download the RDS CA bundle for the instance's
+region, point `DB_SSLROOTCERT` at it, then set `DB_SSLMODE="verify-full"`:
+
+```
+curl -o rds-eu-central-1-bundle.pem \
+  https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem
+```
 
 `Database.check()` runs `SELECT 1` and returns `(connected, detail)`. It blocks
 for up to `DB_CONNECT_TIMEOUT`, so keep it off a request path; the detail names
@@ -214,7 +238,7 @@ database user, and the full text goes to the log instead.
 is empty until the first model lands in `lib/db`, so `alembic revision
 --autogenerate` would currently produce an empty revision.
 
-Run migrations from a laptop that can reach RDS, not from the vehicle:
+Run migrations from something inside the VPC, never from the vehicle:
 
 ```
 alembic revision --autogenerate -m "what changed"
@@ -222,23 +246,49 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
+### Reaching the database
+
+`rover-db` has no public endpoint, so a laptop cannot reach it as the VPC
+stands. Pick one of these before the first `alembic upgrade`:
+
+1. **SSM port forward through a small bastion in the VPC** (no inbound ports,
+   no key management). With the session open, `DATABASE_URL` points at
+   `127.0.0.1:<local port>` and `DB_SSLMODE="require"` still applies.
+2. **A VPN into the VPC** (Client VPN or WireGuard on an instance) - the option
+   that also lets the vehicle connect directly, if the vehicle should ever hold
+   a database connection at all.
+3. **Run migrations in the VPC** - a one-off task or a Lambda that ships this
+   repo and calls `alembic upgrade head`.
+
+Whichever is chosen, it is a change to `r2d2-infrastructure`, not to this repo.
+Nothing here opens a connection on its own, so an unreachable database is
+currently a no-op rather than a failure.
+
 ### Tests
 
 `tests/test_database.py` covers the connection layer without a database. To also
 check a real connection:
 
 ```
-docker run -d --name r2d2-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=r2d2 -p 55432:5432 postgres:16-alpine
-TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/r2d2" pytest
+docker run -d --name r2d2-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=rover -p 55432:5432 postgres:16-alpine
+TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/rover" pytest
 ```
+
+Postgres 16 matches `engine_version` on the RDS instance, and `rover` matches
+`db_name`, so a URL differs from the deployed one only in host and credentials.
 
 Notes:
 
 1. `psycopg` is LGPL-3.0 licensed (SQLAlchemy and Alembic are MIT). It is used
    as an unmodified library, which LGPL allows, but flag it if a client contract
    restricts copyleft dependencies.
-2. RDS should not be reachable from the public internet. Put the vehicle on a
-   VPN or a private uplink into the VPC rather than opening the security group.
+2. RDS is not reachable from the public internet and should stay that way.
+   Route the vehicle over a VPN or a private uplink into the VPC rather than
+   setting `publicly_accessible = true` or widening `rover-db-sg`.
+3. `aws_db_instance.rover` has `skip_final_snapshot = true`, no
+   `storage_encrypted`, no backup retention and no deletion protection. Fine for
+   a rover prototype, worth revisiting in `r2d2-infrastructure` before anything
+   is stored that would hurt to lose.
 
 
 ## 7. Vehicle control with gamepad
