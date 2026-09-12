@@ -6,12 +6,10 @@ apps/                  processes - each one is started by a start_*.sh
 ├── vehicle_control/   motor loop on the vehicle
 └── controller/        gamepad reader on the laptop
 lib/                   libraries - imported, never started
-├── db/                SQLAlchemy engine, session, config
 ├── ddsm115/           motor driver
 ├── gamepad/           UDP control protocol shared by controller and vehicle
 └── common/            formatting and conversion helpers
 settings/              environment configuration
-migrations/            Alembic revisions
 tests/
 ```
 
@@ -137,161 +135,7 @@ sized for it (320x240 at 10 fps):
    USB Wi-Fi is usually the next bottleneck after the CPU.
 
 
-## 6. Database (Postgres on AWS)
-
-A connection layer only: SQLAlchemy 2.0 + Alembic talking to RDS over the
-`psycopg` (v3) driver. There is **no model and no migration yet** - the schema
-is still undecided, so `lib/db` gives you an engine, sessions and configuration
-and nothing that presumes a table. The API does not open a database connection
-anywhere yet; wiring it into `create_app` comes with the first model.
-
-```python
-from lib.db import Database
-
-db = Database()                      # reads DATABASE_URL from .env
-with db.session_scope() as session:  # commits on success, rolls back on error
-    ...
-```
-
-`Database()` with an empty `DATABASE_URL` is switched off rather than broken:
-`configured` is `False` and touching `engine` raises instead of silently
-connecting somewhere.
-
-### Install on the Pi 1 Model B+ (ARMv6)
-
-PyPI has no 32-bit ARM wheels for any of the C-based Postgres drivers, so the Pi
-uses the pure-Python psycopg build, which needs no compiler - only libpq:
-
-```
-sudo apt install libpq5
-pip install -r requirements.txt
-```
-
-Nothing here is compiled on the Pi:
-
-1. `SQLAlchemy` ships a `py3-none-any` wheel and only pulls `greenlet` on 64-bit
-   platforms, so on ARMv6 pip takes the pure-Python path.
-2. `alembic` is pure Python.
-3. `requirements.txt` selects `psycopg[binary]` on laptops and CI, and plain
-   `psycopg` (pure Python, uses the system libpq) on `armv6l`/`armv7l`.
-4. `postgresql://` URLs are rewritten to `postgresql+psycopg://` at runtime, so
-   SQLAlchemy never reaches for psycopg2 - which *would* have to be compiled.
-
-The pure-Python driver is slower per query than the C one. For a few telemetry
-rows on a single-core 700 MHz board that is not the bottleneck; the uplink is.
-
-### The instance
-
-The database is provisioned in `r2d2-infrastructure`
-(`terraform/database.tf`), not by anything in this repo:
-
-| | |
-|---|---|
-| instance | `rover-db`, `db.t3.micro`, 20 GB autoscaling to 50 |
-| engine | Postgres 16 |
-| database / user | `rover` / `rover` (password from the `db_password` variable) |
-| region | `eu-central-1`, private subnets `rover-private-a` / `-b` |
-| exposure | `publicly_accessible = false`; the `rover-db-sg` group admits 5432 **only** from `rover-app-sg` |
-
-That last row is the one that decides how this repo talks to it: there is no
-public endpoint and no bastion, and the vehicle is not in the VPC. Today only
-things attached to `rover-app-sg` - the telemetry Lambda - can open a
-connection. See *Reaching the database* below before setting `DATABASE_URL` on
-the Pi and expecting it to work.
-
-### Configure
-
-Set in `.env`:
-
-```
-DATABASE_URL="postgresql+psycopg://rover:<password>@rover-db.<id>.eu-central-1.rds.amazonaws.com:5432/rover"
-DB_SSLMODE="require"
-```
-
-`DB_CONNECT_TIMEOUT`, `DB_STATEMENT_TIMEOUT_MS`, `DB_POOL_SIZE`,
-`DB_MAX_OVERFLOW` and `DB_POOL_RECYCLE` are tuned in `.env.example` for a
-vehicle on flaky Wi-Fi: small pool, short timeouts, `pool_pre_ping` on, and
-connections recycled every 5 minutes so an RDS failover does not leave the API
-holding dead sockets. All of them are fields of `DatabaseConfig`
-(`lib/db/config.py`), which is what a `Database` instance actually reads - the
-environment only supplies the defaults, so a second database or a test
-container is a different config, not a different process environment.
-
-For certificate verification, download the RDS CA bundle for the instance's
-region, point `DB_SSLROOTCERT` at it, then set `DB_SSLMODE="verify-full"`:
-
-```
-curl -o rds-eu-central-1-bundle.pem \
-  https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem
-```
-
-`Database.check()` runs `SELECT 1` and returns `(connected, detail)`. It blocks
-for up to `DB_CONNECT_TIMEOUT`, so keep it off a request path; the detail names
-only the exception class, because driver errors carry the RDS endpoint and the
-database user, and the full text goes to the log instead.
-
-### Migrations
-
-`alembic.ini` and `migrations/` are set up and hold no credentials -
-`migrations/env.py` reads `DATABASE_URL` from `.env`, or takes
-`alembic -x url=postgresql+psycopg://... upgrade head`. `migrations/versions/`
-is empty until the first model lands in `lib/db`, so `alembic revision
---autogenerate` would currently produce an empty revision.
-
-Run migrations from something inside the VPC, never from the vehicle:
-
-```
-alembic revision --autogenerate -m "what changed"
-alembic upgrade head
-alembic downgrade -1
-```
-
-### Reaching the database
-
-`rover-db` has no public endpoint, so a laptop cannot reach it as the VPC
-stands. Pick one of these before the first `alembic upgrade`:
-
-1. **SSM port forward through a small bastion in the VPC** (no inbound ports,
-   no key management). With the session open, `DATABASE_URL` points at
-   `127.0.0.1:<local port>` and `DB_SSLMODE="require"` still applies.
-2. **A VPN into the VPC** (Client VPN or WireGuard on an instance) - the option
-   that also lets the vehicle connect directly, if the vehicle should ever hold
-   a database connection at all.
-3. **Run migrations in the VPC** - a one-off task or a Lambda that ships this
-   repo and calls `alembic upgrade head`.
-
-Whichever is chosen, it is a change to `r2d2-infrastructure`, not to this repo.
-Nothing here opens a connection on its own, so an unreachable database is
-currently a no-op rather than a failure.
-
-### Tests
-
-`tests/test_database.py` covers the connection layer without a database. To also
-check a real connection:
-
-```
-docker run -d --name r2d2-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=rover -p 55432:5432 postgres:16-alpine
-TEST_DATABASE_URL="postgresql+psycopg://postgres:devpass@127.0.0.1:55432/rover" pytest
-```
-
-Postgres 16 matches `engine_version` on the RDS instance, and `rover` matches
-`db_name`, so a URL differs from the deployed one only in host and credentials.
-
-Notes:
-
-1. `psycopg` is LGPL-3.0 licensed (SQLAlchemy and Alembic are MIT). It is used
-   as an unmodified library, which LGPL allows, but flag it if a client contract
-   restricts copyleft dependencies.
-2. RDS is not reachable from the public internet and should stay that way.
-   Route the vehicle over a VPN or a private uplink into the VPC rather than
-   setting `publicly_accessible = true` or widening `rover-db-sg`.
-3. `aws_db_instance.rover` has `skip_final_snapshot = true`, no
-   `storage_encrypted`, no backup retention and no deletion protection. Fine for
-   a rover prototype, worth revisiting in `r2d2-infrastructure` before anything
-   is stored that would hurt to lose.
-
-
-## 7. Vehicle control with gamepad
+## 6. Vehicle control with gamepad
 
 See `docs/gamepad-control.md` for the operator flow and control mapping.
 

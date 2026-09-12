@@ -9,10 +9,3 @@ uvicorn==0.22.0
 pytest==8.3.3
 httpx==0.27.2
 awsiotsdk==1.31.0
-SQLAlchemy==2.0.52
-alembic==1.19.2
-# psycopg 3 (LGPL-3.0). PyPI has no 32-bit ARM wheels, so the Pi 1 (armv6l)
-# gets the pure-Python driver - no compiler needed, only libpq at runtime
-# (sudo apt install libpq5). Everything else gets the faster C build.
-psycopg[binary]==3.3.5 ; platform_machine not in "armv6l armv7l"
-psycopg==3.3.5 ; platform_machine in "armv6l armv7l"
