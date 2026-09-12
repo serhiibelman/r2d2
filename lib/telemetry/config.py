@@ -12,6 +12,7 @@ from settings import (
     IOT_ROOT_CA_PATH,
     IOT_THING_NAME,
     TELEMETRY_HEARTBEAT_SECONDS,
+    TELEMETRY_IDLE_HEARTBEAT_SECONDS,
     TELEMETRY_INTERVAL_SECONDS,
     TELEMETRY_PUBLISH_TIMEOUT_SECONDS,
     TELEMETRY_TOPIC,
@@ -36,6 +37,7 @@ class TelemetryConfig:
     root_ca_path: str = IOT_ROOT_CA_PATH
     interval_seconds: float = TELEMETRY_INTERVAL_SECONDS
     heartbeat_seconds: float = TELEMETRY_HEARTBEAT_SECONDS
+    idle_heartbeat_seconds: float = TELEMETRY_IDLE_HEARTBEAT_SECONDS
     keep_alive_seconds: int = IOT_KEEP_ALIVE_SECONDS
     publish_timeout_seconds: float = TELEMETRY_PUBLISH_TIMEOUT_SECONDS
 

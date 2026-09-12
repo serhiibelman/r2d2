@@ -45,3 +45,7 @@ TELEMETRY_INTERVAL_SECONDS = float(os.getenv("TELEMETRY_INTERVAL_SECONDS", "5.0"
 # Published even when nothing changed, so a silent rover is distinguishable
 # from a disconnected one. Set to 0 to publish only on change.
 TELEMETRY_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_HEARTBEAT_SECONDS", "30.0"))
+# The heartbeat used while the rover is not moving. A parked vehicle has
+# nothing to report, so it reports rarely; a real change still goes out at
+# once, whatever this is set to. 0 disables the distinction.
+TELEMETRY_IDLE_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_IDLE_HEARTBEAT_SECONDS", "300.0"))

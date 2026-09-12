@@ -208,18 +208,40 @@ class TelemetryPublisher:
         if signature != self._last_signature:
             return self.publish_once(snapshot, trigger="change")
 
-        if self._due_for_heartbeat():
-            return self.publish_once(snapshot, trigger="heartbeat")
+        if self._due_for_heartbeat(snapshot):
+            trigger = "idle" if self._is_idle(snapshot) else "heartbeat"
+            return self.publish_once(snapshot, trigger=trigger)
 
         self.skipped += 1
         return False
 
-    def _due_for_heartbeat(self) -> bool:
-        if self.config.heartbeat_seconds <= 0:
+    @staticmethod
+    def at_rest(snapshot: dict[str, Any]) -> bool:
+        """True when no motor has been commanded to turn.
+
+        `motor_feedback` carries the commanded rpm, so this says "nobody asked
+        it to move" rather than "it is not moving" - close enough to decide how
+        chatty to be, and it never mistakes sensor noise for motion.
+        """
+        feedback = snapshot.get("motor_feedback") or []
+        return all(not entry.get("rpm") for entry in feedback)
+
+    def _is_idle(self, snapshot: dict[str, Any]) -> bool:
+        """At rest *and* configured to treat that differently."""
+        return self.config.idle_heartbeat_seconds > 0 and self.at_rest(snapshot)
+
+    def _heartbeat_interval(self, snapshot: dict[str, Any]) -> float:
+        if self._is_idle(snapshot):
+            return self.config.idle_heartbeat_seconds
+        return self.config.heartbeat_seconds
+
+    def _due_for_heartbeat(self, snapshot: dict[str, Any]) -> bool:
+        interval = self._heartbeat_interval(snapshot)
+        if interval <= 0:
             return False
         if self._last_published_at is None:
             return True
-        return self._now() - self._last_published_at >= self.config.heartbeat_seconds
+        return self._now() - self._last_published_at >= interval
 
     def _ensure_connection(self) -> Connection:
         with self._lock:

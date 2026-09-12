@@ -39,15 +39,19 @@ class FakeConnection:
         return FakeFuture()
 
 
-STATE = {"overall_status": "ok"}
+STATE = {"overall_status": "ok", "motor_feedback": [{"motor_id": 1, "rpm": None}]}
 
 
 def snapshot() -> dict:
     return {
         **STATE,
         "timestamp": datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc),
-        "motor_feedback": [{"motor_id": 1, "rpm": 40}],
     }
+
+
+def moving():
+    """Put the shared snapshot into a state where a motor was commanded."""
+    STATE["motor_feedback"] = [{"motor_id": 1, "rpm": 40}]
 
 
 def make_publisher(connection=None, **overrides):
@@ -245,6 +249,7 @@ def test_disconnect_stops_the_network_thread(fake_paho):
 def reset_state():
     STATE.clear()
     STATE["overall_status"] = "ok"
+    STATE["motor_feedback"] = [{"motor_id": 1, "rpm": None}]
     yield
 
 
@@ -260,6 +265,7 @@ def make_ticking_publisher(**overrides):
         "key_path": "/certs/private.pem.key",
         "root_ca_path": "/certs/Amazon-root-CA-1.pem",
         "heartbeat_seconds": 30.0,
+        "idle_heartbeat_seconds": 300.0,
     }
     fields.update(overrides)
     connection = FakeConnection()
@@ -316,6 +322,7 @@ def test_a_changed_component_publishes_immediately():
 def test_the_heartbeat_publishes_an_unchanged_snapshot():
     # Silence has to mean "gone", not "idle".
     publisher, connection, clock = make_ticking_publisher()
+    moving()
     publisher.publish_if_due()
 
     clock["t"] = 29.0
@@ -327,7 +334,9 @@ def test_the_heartbeat_publishes_an_unchanged_snapshot():
 
 
 def test_a_zero_heartbeat_publishes_only_on_change():
-    publisher, connection, clock = make_ticking_publisher(heartbeat_seconds=0)
+    publisher, connection, clock = make_ticking_publisher(
+        heartbeat_seconds=0, idle_heartbeat_seconds=0
+    )
     publisher.publish_if_due()
 
     clock["t"] = 10_000.0
@@ -345,3 +354,61 @@ def test_a_failed_publish_does_not_count_as_delivered_state():
     assert publisher.publish_if_due() is False
     assert publisher.publish_if_due() is False
     assert publisher.failed == 2
+
+
+def test_a_parked_rover_waits_for_the_idle_heartbeat():
+    # The whole point: a resting vehicle has nothing to say, so it says it
+    # rarely - 300s instead of 30s.
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 299.0
+    assert publisher.publish_if_due() is False
+
+    clock["t"] = 300.0
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "idle"
+
+
+def test_a_moving_rover_keeps_the_normal_heartbeat():
+    publisher, connection, clock = make_ticking_publisher()
+    moving()
+    publisher.publish_if_due()
+
+    clock["t"] = 30.0
+
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "heartbeat"
+
+
+def test_a_change_while_parked_still_publishes_immediately():
+    # Quiet must not mean deaf: a component failing while parked is exactly
+    # what you want to hear about.
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 10.0
+    STATE["overall_status"] = "degraded"
+
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "change"
+
+
+def test_moving_off_does_not_wait_for_the_idle_heartbeat():
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 5.0
+    moving()
+
+    assert publisher.publish_if_due() is True
+
+
+def test_a_zero_idle_heartbeat_keeps_one_rate_for_both():
+    publisher, connection, clock = make_ticking_publisher(idle_heartbeat_seconds=0)
+    publisher.publish_if_due()
+
+    clock["t"] = 30.0
+
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "heartbeat"
