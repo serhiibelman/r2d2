@@ -8,25 +8,34 @@ from apps.api.routes.motors import router as motors_router
 from apps.api.routes.status import router as status_router
 from apps.api.services.camera import CameraService
 from apps.api.services.vehicle_status import VehicleStatusService
+from lib.telemetry import TelemetryPublisher
 
 
 def create_app(
     vehicle_status_service: VehicleStatusService | None = None,
     camera_service: CameraService | None = None,
+    telemetry_publisher: TelemetryPublisher | None = None,
 ) -> FastAPI:
     service = vehicle_status_service or VehicleStatusService()
     camera = camera_service or CameraService()
+    # The publisher lives here rather than in its own process because this one
+    # already owns the motor bus; a second process would fight for the serial
+    # port. With no IOT_ENDPOINT configured it starts and stops as a no-op.
+    telemetry = telemetry_publisher or TelemetryPublisher(snapshot=service.snapshot)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.vehicle_status_service = service
         app.state.camera_service = camera
+        app.state.telemetry_publisher = telemetry
         service.start()
+        telemetry.start()
         # The camera opens on the first stream/snapshot request instead of at
         # boot, so the sensor stays powered down while nobody is watching.
         try:
             yield
         finally:
+            telemetry.stop()
             service.stop()
             camera.stop()
 

@@ -24,3 +24,24 @@ CAMERA_MAX_CLIENTS = int(os.getenv("CAMERA_MAX_CLIENTS", "4"))
 CAMERA_ENCODER = os.getenv("CAMERA_ENCODER", "auto").strip().lower()
 CAMERA_BUFFER_COUNT = int(os.getenv("CAMERA_BUFFER_COUNT", "2"))
 
+# AWS IoT Core telemetry. Empty IOT_ENDPOINT disables publishing entirely so
+# the vehicle keeps driving with no connectivity and no credentials on board.
+IOT_ENDPOINT = os.getenv("IOT_ENDPOINT", "").strip()
+IOT_THING_NAME = os.getenv("IOT_THING_NAME", "rover-01").strip()
+# IoT policies scope iot:Connect by client ID, so it must match the thing name.
+IOT_CLIENT_ID = os.getenv("IOT_CLIENT_ID", IOT_THING_NAME).strip()
+TELEMETRY_TOPIC = os.getenv("TELEMETRY_TOPIC", "rover/{thing}/telemetry").strip()
+IOT_CERT_PATH = os.getenv("IOT_CERT_PATH", "").strip()
+IOT_KEY_PATH = os.getenv("IOT_KEY_PATH", "").strip()
+IOT_ROOT_CA_PATH = os.getenv("IOT_ROOT_CA_PATH", "").strip()
+# 8883 is MQTT over TLS with a client certificate - the port AWS IoT expects.
+IOT_PORT = int(os.getenv("IOT_PORT", "8883"))
+IOT_KEEP_ALIVE_SECONDS = int(os.getenv("IOT_KEEP_ALIVE_SECONDS", "30"))
+# Bounded so a dead uplink cannot pin the publisher thread.
+TELEMETRY_PUBLISH_TIMEOUT_SECONDS = float(os.getenv("TELEMETRY_PUBLISH_TIMEOUT_SECONDS", "5.0"))
+# How often the snapshot is sampled. A sample is only published if something
+# changed, so this is an upper bound on message rate, not the rate itself.
+TELEMETRY_INTERVAL_SECONDS = float(os.getenv("TELEMETRY_INTERVAL_SECONDS", "5.0"))
+# Published even when nothing changed, so a silent rover is distinguishable
+# from a disconnected one. Set to 0 to publish only on change.
+TELEMETRY_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_HEARTBEAT_SECONDS", "30.0"))

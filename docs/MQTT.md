@@ -58,12 +58,11 @@ chmod 600 ~/r2d2/certs/private.pem.key
 Download the AWS Root CA separately:
 ```
 wget https://www.amazontrust.com/repository/AmazonRootCA1.pem \
-  -O ~/rover/certs/Amazon-root-CA-1.pem
+  -O ~/r2d2/certs/Amazon-root-CA-1.pem
 ```
 ## install the MQTT client
-Make sure MQTT client installed 
 ```
-python -c "import awscrt; import awsiot; print('AWS IoT SDK OK')"
+python -c "import paho.mqtt.client; print('paho-mqtt OK')"
 ```
 ## Check AWS
 In AWS IoT Core → MQTT test client:
