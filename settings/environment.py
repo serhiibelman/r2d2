@@ -39,6 +39,9 @@ IOT_PORT = int(os.getenv("IOT_PORT", "8883"))
 IOT_KEEP_ALIVE_SECONDS = int(os.getenv("IOT_KEEP_ALIVE_SECONDS", "30"))
 # Bounded so a dead uplink cannot pin the publisher thread.
 TELEMETRY_PUBLISH_TIMEOUT_SECONDS = float(os.getenv("TELEMETRY_PUBLISH_TIMEOUT_SECONDS", "5.0"))
-# One message per second is plenty for status telemetry and keeps IoT Core
-# message costs and the uplink well inside what the Pi 1 can sustain.
-TELEMETRY_INTERVAL_SECONDS = float(os.getenv("TELEMETRY_INTERVAL_SECONDS", "1.0"))
+# How often the snapshot is sampled. A sample is only published if something
+# changed, so this is an upper bound on message rate, not the rate itself.
+TELEMETRY_INTERVAL_SECONDS = float(os.getenv("TELEMETRY_INTERVAL_SECONDS", "5.0"))
+# Published even when nothing changed, so a silent rover is distinguishable
+# from a disconnected one. Set to 0 to publish only on change.
+TELEMETRY_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_HEARTBEAT_SECONDS", "30.0"))

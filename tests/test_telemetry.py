@@ -39,9 +39,12 @@ class FakeConnection:
         return FakeFuture()
 
 
+STATE = {"overall_status": "ok"}
+
+
 def snapshot() -> dict:
     return {
-        "overall_status": "ok",
+        **STATE,
         "timestamp": datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc),
         "motor_feedback": [{"motor_id": 1, "rpm": 40}],
     }
@@ -236,3 +239,109 @@ def test_disconnect_stops_the_network_thread(fake_paho):
 
     assert FakePahoClient.last.loops_stopped == 1
     assert FakePahoClient.last.disconnects == 1
+
+
+@pytest.fixture(autouse=True)
+def reset_state():
+    STATE.clear()
+    STATE["overall_status"] = "ok"
+    yield
+
+
+def make_ticking_publisher(**overrides):
+    """A publisher with a clock we control, so heartbeats are not a sleep."""
+    clock = {"t": 0.0}
+    fields = {
+        "endpoint": "example-ats.iot.eu-central-1.amazonaws.com",
+        "client_id": "rover-01",
+        "thing_name": "rover-01",
+        "topic": "rover/{thing}/telemetry",
+        "cert_path": "/certs/device.pem.crt",
+        "key_path": "/certs/private.pem.key",
+        "root_ca_path": "/certs/Amazon-root-CA-1.pem",
+        "heartbeat_seconds": 30.0,
+    }
+    fields.update(overrides)
+    connection = FakeConnection()
+    publisher = TelemetryPublisher(
+        snapshot=snapshot,
+        config=TelemetryConfig(**fields),
+        connection_factory=lambda _config: connection,
+        time_func=lambda: clock["t"],
+    )
+    return publisher, connection, clock
+
+
+def test_the_first_sample_is_always_published():
+    publisher, connection, _ = make_ticking_publisher()
+
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[0][1])["trigger"] == "change"
+
+
+def test_an_unchanged_snapshot_is_not_republished():
+    # A parked rover would otherwise write thousands of identical rows a day.
+    publisher, connection, _ = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    assert publisher.publish_if_due() is False
+    assert publisher.skipped == 1
+    assert len(connection.published) == 1
+
+
+def test_moving_clocks_alone_do_not_count_as_a_change():
+    publisher, connection, _ = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    # `timestamp`/`checked_at` advance on every sample by definition.
+    STATE["unused"] = None
+    del STATE["unused"]
+
+    assert publisher.publish_if_due() is False
+    assert len(connection.published) == 1
+
+
+def test_a_changed_component_publishes_immediately():
+    publisher, connection, _ = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    STATE["overall_status"] = "degraded"
+
+    assert publisher.publish_if_due() is True
+    message = json.loads(connection.published[1][1])
+    assert message["trigger"] == "change"
+    assert message["snapshot"]["overall_status"] == "degraded"
+
+
+def test_the_heartbeat_publishes_an_unchanged_snapshot():
+    # Silence has to mean "gone", not "idle".
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 29.0
+    assert publisher.publish_if_due() is False
+
+    clock["t"] = 30.0
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "heartbeat"
+
+
+def test_a_zero_heartbeat_publishes_only_on_change():
+    publisher, connection, clock = make_ticking_publisher(heartbeat_seconds=0)
+    publisher.publish_if_due()
+
+    clock["t"] = 10_000.0
+
+    assert publisher.publish_if_due() is False
+    assert len(connection.published) == 1
+
+
+def test_a_failed_publish_does_not_count_as_delivered_state():
+    # Otherwise the change that failed to send would be suppressed as "already
+    # published" and the next identical sample would be skipped.
+    publisher, connection, _ = make_ticking_publisher()
+    publisher._connection_factory = lambda _c: FakeConnection(publish_error=OSError("down"))
+
+    assert publisher.publish_if_due() is False
+    assert publisher.publish_if_due() is False
+    assert publisher.failed == 2
