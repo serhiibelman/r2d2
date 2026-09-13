@@ -24,6 +24,20 @@ def test_status_endpoint(build_app) -> None:
     assert payload["motor_feedback"][0]["rpm"] is None
 
 
+def test_status_endpoint_reports_battery_and_attitude(build_app) -> None:
+    # /status is the snapshot an operator reads; battery is the field that
+    # predicts the failure that actually strands the vehicle.
+    with TestClient(build_app()) as client:
+        payload = client.get("/status").json()
+
+    assert payload["battery"] == {
+        "voltage_v": 12.4,
+        "current_a": 1.83,
+        "remaining_percent": 76,
+    }
+    assert payload["attitude"]["roll_deg"] == 0.4
+
+
 def test_start_motors_endpoint(build_app, vehicle_service) -> None:
     with TestClient(build_app()) as client:
         response = client.post("/motors/start", json={"rpm": 120})

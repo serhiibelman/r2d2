@@ -17,8 +17,12 @@ NOT_CONFIGURED = "AWS IoT is not configured (IOT_ENDPOINT is empty)"
 QOS_AT_LEAST_ONCE = 1
 
 
-# Times change on every sample by definition, so they cannot count as news.
-VOLATILE_KEYS = ("timestamp", "checked_at", "last_frame_at", "recorded_at")
+# Values that change on every sample by definition, so they cannot count as
+# news. The clocks are obvious. `yaw_deg` is here because a compass drifts on
+# its own: left in, a parked rover would publish every few seconds and undo the
+# idle heartbeat. Roll and pitch are gravity-referenced and stay put, so a
+# vehicle that tips over still says so immediately.
+VOLATILE_KEYS = ("timestamp", "checked_at", "last_frame_at", "recorded_at", "yaw_deg")
 
 
 def significant(value: Any) -> Any:
