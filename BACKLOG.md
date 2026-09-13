@@ -141,14 +141,6 @@ that would hurt to lose.
 - **Telemetry only publishes from the API process.** `start_vehicle.sh` runs
   `apps.vehicle_control.main`, which has no publisher, so driving without the
   API sends nothing. Either document it or move the publisher.
-- **Three files fail `black`** - `apps/api/services/camera.py`,
-  `apps/api/services/vehicle_status.py`,
-  `apps/vehicle_control/vehicle_controller.py`. Pre-existing.
-- **`tests/test_camera_service.py` reads real env vars,** so it fails whenever a
-  `.env` exists with non-default camera values. Tests should not depend on the
-  machine they run on.
-- **No CI.** A GitHub Action running `pytest` and `black --check` would have
-  caught both of the above.
 - **Lambda logs nothing on success,** so "it worked" is inferred from the
   absence of a traceback.
 

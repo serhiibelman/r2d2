@@ -77,7 +77,17 @@ def fake_picamera2(monkeypatch):
 
 
 def make_backend(**kwargs) -> Picamera2Backend:
-    defaults = dict(width=320, height=240, framerate=10, jpeg_quality=80)
+    # `encoder` and `buffer_count` default to the `settings` values bound at
+    # import, so leaving them out would let a machine's `.env` decide what
+    # these tests mean. Pinned here for the same reason as the rest.
+    defaults = dict(
+        width=320,
+        height=240,
+        framerate=10,
+        jpeg_quality=80,
+        encoder="auto",
+        buffer_count=2,
+    )
     return Picamera2Backend(**{**defaults, **kwargs})
 
 

@@ -10,7 +10,7 @@ from settings import RIGHT_SIDE, LEFT_SIDE
 MAX_RPM = 200
 MAX_STEER_RPM = 100  # half of MAX_RPM for gentler turns
 RAMP_STEP = 5
-DEAD_ZONE = 0.1   # ignore axis jitter near center
+DEAD_ZONE = 0.1  # ignore axis jitter near center
 LOOP_INTERVAL = 0.05  # 20 Hz
 
 
@@ -27,6 +27,7 @@ class VehicleController:
     Motor wiring convention (from actuator_test.py):
         RIGHT_SIDE motors receive rpm * -1 to match the physical mounting direction.
     """
+
     def __init__(self, receiver: UDPReceiver, motor: DDS115):
         self.receiver = receiver
         self.motor = motor
@@ -90,7 +91,7 @@ class VehicleController:
         self._braked = False
 
         if self._drive_enabled:
-            left_y = state.axes.left_y   # left joystick up/down: up = -1, down = +1
+            left_y = state.axes.left_y  # left joystick up/down: up = -1, down = +1
             right_x = state.axes.right_x  # right joystick left/right: left = -1, right = +1
 
             # Apply dead zone to forward/back so releasing the stick ramps to 0 smoothly
