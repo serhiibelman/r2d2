@@ -49,3 +49,16 @@ TELEMETRY_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_HEARTBEAT_SECONDS", "30
 # nothing to report, so it reports rarely; a real change still goes out at
 # once, whatever this is set to. 0 disables the distinction.
 TELEMETRY_IDLE_HEARTBEAT_SECONDS = float(os.getenv("TELEMETRY_IDLE_HEARTBEAT_SECONDS", "300.0"))
+
+# Offline spool. Every message is written to a local SQLite file before it is
+# sent and deleted once the broker acknowledges it, so an outage delays
+# telemetry instead of losing it. Empty path disables spooling and restores
+# the old publish-or-drop behaviour.
+TELEMETRY_SPOOL_PATH = os.getenv("TELEMETRY_SPOOL_PATH", "var/telemetry-spool.sqlite3").strip()
+# Retention. Both caps drop the oldest messages first: a spool that grows
+# without limit fills the SD card, which takes the whole vehicle down - a
+# worse failure than the gap in history it was protecting.
+TELEMETRY_SPOOL_MAX_ROWS = int(os.getenv("TELEMETRY_SPOOL_MAX_ROWS", "10000"))
+TELEMETRY_SPOOL_MAX_AGE_DAYS = float(os.getenv("TELEMETRY_SPOOL_MAX_AGE_DAYS", "7"))
+# How many spooled messages one flush may send before the loop sleeps again.
+TELEMETRY_SPOOL_BATCH = int(os.getenv("TELEMETRY_SPOOL_BATCH", "50"))

@@ -8,6 +8,8 @@ apps/                  processes - each one is started by a start_*.sh
 lib/                   libraries - imported, never started
 ├── ddsm115/           motor driver
 ├── gamepad/           UDP control protocol shared by controller and vehicle
+├── telemetry/         MQTT publisher for AWS IoT Core
+├── spool/             on-disk outbox that survives an uplink outage
 └── common/            formatting and conversion helpers
 settings/              environment configuration
 tests/
@@ -135,7 +137,48 @@ sized for it (320x240 at 10 fps):
    USB Wi-Fi is usually the next bottleneck after the CPU.
 
 
-## 6. Vehicle control with gamepad
+## 6. Telemetry
+
+The API publishes vehicle snapshots to AWS IoT Core - on change, plus a
+heartbeat so silence still means "gone". See `docs/MQTT.md` for the
+certificates and the AWS side, and `.env.example` for every knob.
+
+Check the uplink from the Pi before starting the API:
+
+```
+python telemetry_test.py
+```
+
+### The offline spool
+
+Every message is written to a local SQLite file before it is sent, and deleted
+once the broker acknowledges it. A publish that fails leaves the message on
+disk; the next tick reconnects and drains the backlog oldest first. Losing the
+link is exactly when the interesting samples happen, so they are the ones worth
+keeping.
+
+```
+var/telemetry-spool.sqlite3
+```
+
+Notes:
+
+1. `recorded_at` is stamped when the sample is taken, not when it is sent, so a
+   replayed backlog lands in Postgres with the times it actually happened.
+   Delivery is at-least-once, so a replay can duplicate a row rather than lose
+   one.
+2. Retention is capped by rows (`TELEMETRY_SPOOL_MAX_ROWS`, default 10 000) and
+   by age (`TELEMETRY_SPOOL_MAX_AGE_DAYS`, default 7), both dropping the oldest
+   first. An unbounded spool would fill the SD card, which takes the whole
+   vehicle down - a worse failure than a gap in history.
+3. `TELEMETRY_SPOOL_PATH=""` switches spooling off and restores the old
+   publish-or-drop behaviour. `telemetry_test.py` always runs with it off.
+4. The file is disposable. It is a buffer for messages that are already in
+   Postgres or minutes from it, so deleting it costs a small gap and nothing
+   else - which is also what happens automatically when the schema version
+   changes between releases.
+
+## 7. Vehicle control with gamepad
 
 See `docs/gamepad-control.md` for the operator flow and control mapping.
 

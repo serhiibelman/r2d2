@@ -7,6 +7,7 @@ from threading import Event, Lock, Thread
 from time import monotonic, sleep
 from typing import Any, Callable, Protocol
 
+from lib.spool import Spool
 from lib.telemetry.config import TelemetryConfig
 
 logger = logging.getLogger(__name__)
@@ -104,12 +105,24 @@ def _build_connection(config: TelemetryConfig) -> Connection:
     return _PahoConnection(config)
 
 
+def _build_spool(config: TelemetryConfig) -> Spool | None:
+    if not config.spool_enabled:
+        return None
+    return Spool(
+        config.spool_path,
+        max_rows=config.spool_max_rows,
+        max_age_seconds=config.spool_max_age_seconds,
+    )
+
+
 class TelemetryPublisher:
     """Publishes vehicle snapshots to AWS IoT Core on a background thread.
 
-    Nothing here is on the driving path: a publish that fails is logged and
-    dropped, the next tick reconnects, and with no endpoint configured the
-    whole thing is a no-op so the vehicle runs exactly as it did before.
+    Nothing here is on the driving path: a message is written to the local
+    spool first and only then sent, so a failed uplink delays telemetry rather
+    than losing it, the next tick reconnects and drains the backlog oldest
+    first, and with no endpoint configured the whole thing is a no-op so the
+    vehicle runs exactly as it did before.
     """
 
     def __init__(
@@ -119,19 +132,27 @@ class TelemetryPublisher:
         connection_factory: Callable[[TelemetryConfig], Connection] = _build_connection,
         sleep_func: Callable[[float], None] = sleep,
         time_func: Callable[[], float] = monotonic,
+        spool_factory: Callable[[TelemetryConfig], Spool | None] = _build_spool,
     ) -> None:
         self.snapshot = snapshot
         self.config = config or TelemetryConfig()
         self._connection_factory = connection_factory
         self._sleep = sleep_func
         self._now = time_func
+        self._spool_factory = spool_factory
         self._connection: Connection | None = None
+        self._spool: Spool | None = None
+        self._spool_built = False
         self._stop_event = Event()
         self._lock = Lock()
+        # Draining is serialised separately from the connection: two threads
+        # reading the same batch would send every message in it twice.
+        self._flush_lock = Lock()
         self._thread: Thread | None = None
         self.published = 0
         self.failed = 0
         self.skipped = 0
+        self.spooled = 0
         self._last_signature: str | None = None
         self._last_published_at: float | None = None
 
@@ -155,6 +176,9 @@ class TelemetryPublisher:
             self._thread.join(timeout=self.config.interval_seconds + 1)
             self._thread = None
         self._disconnect()
+        if self._spool is not None:
+            # Whatever is left stays on disk and goes out on the next start.
+            self._spool.close()
 
     def message(self, snapshot: dict[str, Any], trigger: str = "change") -> dict[str, Any]:
         """The payload. `thing_name` travels in the body so the Lambda does not
@@ -167,29 +191,105 @@ class TelemetryPublisher:
         }
 
     def publish_once(self, snapshot: dict[str, Any] | None = None, trigger: str = "change") -> bool:
-        """One unconditional publish attempt. Returns success; never raises."""
+        """Queue one sample and drain the spool. Returns whether the uplink
+        took it; never raises.
+
+        With a spool, False means "kept for later" rather than "lost" - the
+        sample is on disk and goes out with the rest of the backlog once the
+        link is back.
+        """
         if not self.configured:
             return False
         snapshot = self.snapshot() if snapshot is None else snapshot
+        payload = json.dumps(self.message(snapshot, trigger), default=_json_default)
+
+        if self._enqueue(payload):
+            # Ours now, whatever the uplink does: the sample counts as
+            # recorded, so an outage does not re-queue it on every tick.
+            self._remember(snapshot)
+            return self.flush()
+
+        # No spool (or it could not be written): publish or drop, as before.
+        sent = self._send(self.config.resolved_topic, payload)
+        if sent:
+            self._remember(snapshot)
+        return sent
+
+    def flush(self) -> bool:
+        """Send spooled messages oldest first, stopping at the first failure.
+
+        Order is the order they were recorded, so a replayed backlog reads the
+        same as a live one - `recorded_at` travels in the payload, so a late
+        message is still stamped with when it happened.
+        """
+        spool = self._get_spool()
+        if spool is None:
+            return False
+        delivered = 0
+        with self._flush_lock:
+            while not self._stop_event.is_set():
+                batch = spool.pending(self.config.spool_batch)
+                if not batch:
+                    break
+                sent_ids = []
+                for queued in batch:
+                    if not self._send(queued.topic, queued.payload):
+                        break
+                    sent_ids.append(queued.id)
+                spool.discard(sent_ids)
+                delivered += len(sent_ids)
+                if len(sent_ids) < len(batch):
+                    break
+        return delivered > 0
+
+    @property
+    def spool_depth(self) -> int:
+        """Messages waiting for the uplink. 0 when spooling is switched off."""
+        spool = self._get_spool()
+        return 0 if spool is None else spool.depth()
+
+    def _send(self, topic: str, payload: str) -> bool:
+        """One publish attempt against the uplink. Never raises."""
         try:
             connection = self._ensure_connection()
-            payload = json.dumps(self.message(snapshot, trigger), default=_json_default)
-            connection.publish(
-                topic=self.config.resolved_topic,
-                payload=payload,
-                qos=QOS_AT_LEAST_ONCE,
-            )
+            connection.publish(topic=topic, payload=payload, qos=QOS_AT_LEAST_ONCE)
         except Exception as error:  # the uplink is allowed to fail
             self.failed += 1
             logger.warning("Telemetry publish failed", exc_info=error)
             self._disconnect()
             return False
         self.published += 1
+        return True
+
+    def _enqueue(self, payload: str) -> bool:
+        """Write one message to the spool. False if there is no usable spool."""
+        spool = self._get_spool()
+        if spool is None:
+            return False
+        try:
+            spool.append(self.config.resolved_topic, payload)
+        except Exception as error:
+            # A read-only card or a corrupt file must not stop telemetry: drop
+            # back to publishing straight through and say so once.
+            logger.warning("Telemetry spool unusable, publishing direct", exc_info=error)
+            self._spool = None
+            return False
+        self.spooled += 1
+        return True
+
+    def _remember(self, snapshot: dict[str, Any]) -> None:
+        """Mark this sample as recorded - what change detection compares to."""
         self._last_signature = json.dumps(
             significant(snapshot), sort_keys=True, default=_json_default
         )
         self._last_published_at = self._now()
-        return True
+
+    def _get_spool(self) -> Spool | None:
+        """Built on first use, so constructing a publisher opens no file."""
+        if not self._spool_built:
+            self._spool_built = True
+            self._spool = self._spool_factory(self.config)
+        return self._spool
 
     def publish_if_due(self) -> bool:
         """Publish only when something changed, or the heartbeat came due.
@@ -268,5 +368,8 @@ class TelemetryPublisher:
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
-            self.publish_if_due()
+            # A skipped tick still owes the backlog an attempt: without this a
+            # parked rover would sit on spooled messages until it moved again.
+            if not self.publish_if_due():
+                self.flush()
             self._sleep(self.config.interval_seconds)

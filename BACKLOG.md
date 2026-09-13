@@ -8,22 +8,7 @@ Repos: `r2d2` (this one, the vehicle) and `r2d2-infrastructure` (AWS).
 
 ---
 
-## 1. Offline telemetry spool
-
-**Where:** `lib/telemetry/`, new `lib/spool/` · **Size:** M
-
-Today a publish that fails is logged and dropped. Every message sent while the
-uplink is down is gone - which is most of the interesting ones, because losing
-the link is exactly when something is going wrong.
-
-Write telemetry to a local SQLite file first, flush to MQTT on reconnect, mark
-rows sent. SQLite is stdlib, single file, survives power loss mid-drive. Cap
-retention (ring buffer or delete-after-N-days): a full SD card takes the whole
-vehicle down.
-
-Deferred deliberately when the publisher was built - "plain publish first".
-
-## 2. Battery and attitude telemetry
+## 1. Battery and attitude telemetry
 
 **Where:** `apps/vehicle_control/fc.py`, `apps/api/services/vehicle_status.py` · **Size:** S
 
@@ -37,7 +22,7 @@ into the snapshot is nearly free and gives tipped/stuck detection.
 Both flow to Postgres automatically once they are in `snapshot()` - the payload
 is JSONB, so no schema change is needed.
 
-## 3. Last Will and Testament
+## 2. Last Will and Testament
 
 **Where:** `lib/telemetry/publisher.py` (`_PahoConnection.connect`) · **Size:** XS
 
@@ -50,7 +35,7 @@ which with the 300s idle interval means up to five minutes of ambiguity.
 plus publishing `online` after connect. Retained, so anything subscribing later
 sees current state immediately.
 
-## 4. Scope the IoT policy
+## 3. Scope the IoT policy
 
 **Where:** `r2d2-infrastructure/terraform/iot.tf` · **Size:** S
 
@@ -66,7 +51,7 @@ Resource = "arn:aws:iot:${region}:${account}:topic/rover/$${iot:Connection.Thing
 
 Cheap with one rover, painful to retrofit across a fleet.
 
-## 5. Raspberry Pi health telemetry
+## 4. Raspberry Pi health telemetry
 
 **Where:** `apps/api/services/vehicle_status.py` · **Size:** S
 
@@ -77,7 +62,7 @@ thermal throttling, a full SD card, a weak USB supply browning out the board.
 Cheap to collect, and they explain failures that otherwise look like random
 hangs.
 
-## 6. Control-link failsafe
+## 5. Control-link failsafe
 
 **Where:** `apps/vehicle_control/vehicle_controller.py` · **Size:** S
 
