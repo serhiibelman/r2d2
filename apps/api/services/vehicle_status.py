@@ -83,9 +83,7 @@ class VehicleStatusService:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            components = {
-                name: asdict(component) for name, component in self._components.items()
-            }
+            components = {name: asdict(component) for name, component in self._components.items()}
             motor_feedback = list(self._motor_feedback)
 
         return {
@@ -197,7 +195,9 @@ class VehicleStatusService:
 
     @staticmethod
     def _overall_status(components: dict[str, dict[str, Any]]) -> str:
-        if all(component["configured"] and component["connected"] for component in components.values()):
+        if all(
+            component["configured"] and component["connected"] for component in components.values()
+        ):
             return "ok"
         return "degraded"
 
@@ -246,7 +246,9 @@ class VehicleStatusService:
                 for motor_id in LEFT_SIDE + RIGHT_SIDE
             ]
 
-    def _motor_command_response(self, *, action: str, target_rpm: int, detail: str) -> dict[str, Any]:
+    def _motor_command_response(
+        self, *, action: str, target_rpm: int, detail: str
+    ) -> dict[str, Any]:
         return {
             "service": "r2d2-vehicle-api",
             "action": action,

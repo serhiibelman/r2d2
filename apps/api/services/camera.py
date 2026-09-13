@@ -95,9 +95,11 @@ class Picamera2Backend:
                     )
                 )
                 camera.start_recording(
-                    MJPEGEncoder(bitrate=self._bitrate())
-                    if hardware
-                    else JpegEncoder(q=self.jpeg_quality),
+                    (
+                        MJPEGEncoder(bitrate=self._bitrate())
+                        if hardware
+                        else JpegEncoder(q=self.jpeg_quality)
+                    ),
                     FileOutput(sink),
                 )
             except BACKEND_ERRORS as exc:
