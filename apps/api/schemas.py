@@ -16,6 +16,21 @@ class MotorFeedback(BaseModel):
     current_raw: int | None
 
 
+class Battery(BaseModel):
+    """All optional: the flight controller reports "unknown" for any of these,
+    and so does a vehicle whose FC is not talking."""
+
+    voltage_v: float | None
+    current_a: float | None
+    remaining_percent: int | None
+
+
+class Attitude(BaseModel):
+    roll_deg: float | None
+    pitch_deg: float | None
+    yaw_deg: float | None
+
+
 class VehicleHealthResponse(BaseModel):
     status: str
     service: str
@@ -30,6 +45,8 @@ class VehicleStatusResponse(BaseModel):
     fc_device: str | None
     motor_ids: dict[str, list[int]]
     components: dict[str, ComponentStatus]
+    battery: Battery
+    attitude: Attitude
     motor_feedback: list[MotorFeedback]
 
 

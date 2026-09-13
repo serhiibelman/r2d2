@@ -46,7 +46,12 @@ class FakeConnection:
         return FakeFuture()
 
 
-STATE = {"overall_status": "ok", "motor_feedback": [{"motor_id": 1, "rpm": None}]}
+STATE = {
+    "overall_status": "ok",
+    "motor_feedback": [{"motor_id": 1, "rpm": None}],
+    "battery": {"voltage_v": 12.4, "current_a": 0.0, "remaining_percent": 76},
+    "attitude": {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 271.3},
+}
 
 
 def snapshot() -> dict:
@@ -258,6 +263,8 @@ def reset_state():
     STATE.clear()
     STATE["overall_status"] = "ok"
     STATE["motor_feedback"] = [{"motor_id": 1, "rpm": None}]
+    STATE["battery"] = {"voltage_v": 12.4, "current_a": 0.0, "remaining_percent": 76}
+    STATE["attitude"] = {"roll_deg": 0.0, "pitch_deg": 0.0, "yaw_deg": 271.3}
     yield
 
 
@@ -587,3 +594,52 @@ def test_the_spool_file_is_not_opened_until_something_is_published(tmp_path):
     publisher.publish_once()
     assert path.exists()
     publisher.stop()
+
+
+# -- battery and attitude against the change detector -----------------------
+
+
+def test_compass_drift_alone_does_not_wake_a_parked_rover():
+    # A compass wanders on its own. Counting that as news would publish every
+    # few seconds and undo the idle heartbeat entirely.
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 10.0
+    STATE["attitude"] = {**STATE["attitude"], "yaw_deg": 274.8}
+
+    assert publisher.publish_if_due() is False
+    assert len(connection.published) == 1
+
+
+def test_a_rover_that_tips_over_says_so_immediately():
+    # Roll and pitch are gravity-referenced, so unlike yaw they stay put -
+    # which is what makes them safe to treat as news.
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 10.0
+    STATE["attitude"] = {**STATE["attitude"], "roll_deg": 47.2}
+
+    assert publisher.publish_if_due() is True
+    assert json.loads(connection.published[1][1])["trigger"] == "change"
+
+
+def test_a_falling_battery_is_news():
+    publisher, connection, clock = make_ticking_publisher()
+    publisher.publish_if_due()
+
+    clock["t"] = 10.0
+    STATE["battery"] = {**STATE["battery"], "voltage_v": 11.9}
+
+    assert publisher.publish_if_due() is True
+
+
+def test_yaw_still_travels_in_the_payload():
+    # Excluded from change detection, not from the message: the heading is
+    # still the thing you want when reading back what the rover was doing.
+    publisher, connection, _ = make_ticking_publisher()
+
+    publisher.publish_if_due()
+
+    assert json.loads(connection.published[0][1])["snapshot"]["attitude"]["yaw_deg"] == 271.3

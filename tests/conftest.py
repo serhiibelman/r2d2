@@ -64,6 +64,8 @@ class FakeVehicleStatusService:
             "fc_device": "/dev/serial0",
             "motor_ids": {"left": [3, 4], "right": [1, 2]},
             "components": components,
+            "battery": {"voltage_v": 12.4, "current_a": 1.83, "remaining_percent": 76},
+            "attitude": {"roll_deg": 0.4, "pitch_deg": -1.2, "yaw_deg": 271.3},
             "motor_feedback": [
                 {"motor_id": 1, "rpm": None, "current_raw": None},
                 {"motor_id": 2, "rpm": None, "current_raw": None},

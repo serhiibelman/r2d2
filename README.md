@@ -50,7 +50,7 @@ uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 Available endpoints:
 
 1. `GET /health` - API and hardware probe health.
-2. `GET /status` - current vehicle snapshot, including configured motor IDs and hardware probe status.
+2. `GET /status` - current vehicle snapshot, including configured motor IDs, hardware probe status, battery and attitude.
 3. `POST /motors/start` - ramp all motors to a requested base RPM.
 4. `POST /motors/stop` - ramp all motors down to zero.
 5. `GET /camera/stream` - live MJPEG video from the RPi Camera (B).
@@ -137,7 +137,34 @@ sized for it (320x240 at 10 fps):
    USB Wi-Fi is usually the next bottleneck after the CPU.
 
 
-## 6. Telemetry
+## 6. Battery and attitude
+
+The flight controller already knows the battery voltage and which way up the
+vehicle is; both now reach `/status` and every telemetry message.
+
+```json
+"battery":  {"voltage_v": 12.4, "current_a": 1.83, "remaining_percent": 76},
+"attitude": {"roll_deg": 0.4, "pitch_deg": -1.2, "yaw_deg": 271.3}
+```
+
+Notes:
+
+1. MAVLink reports millivolts, centiamps and radians; these are volts, amps and
+   degrees, with the unit in the field name. `SYS_STATUS` also reports "no
+   reading" in band, as values that look plausible - 65535 mV is not a 65 V
+   battery - so those become `null`.
+2. Any field can be `null`: when the flight controller is not configured, not
+   answering, or has no current sensor fitted.
+3. Readings are taken during the existing health probe, which reopens the link
+   every couple of seconds. `SYS_STATUS` streams more slowly than that, so a
+   probe that catches none keeps the previous reading rather than blanking it.
+   Everything is dropped as soon as the link stops answering.
+4. `yaw_deg` travels in the payload but is not treated as a change, because a
+   compass drifts on its own and a parked rover would otherwise publish every
+   few seconds. `roll_deg` and `pitch_deg` are gravity-referenced and stay put,
+   so a vehicle that tips over still reports it at once.
+
+## 7. Telemetry
 
 The API publishes vehicle snapshots to AWS IoT Core - on change, plus a
 heartbeat so silence still means "gone". See `docs/MQTT.md` for the
@@ -178,7 +205,7 @@ Notes:
    else - which is also what happens automatically when the schema version
    changes between releases.
 
-## 7. Vehicle control with gamepad
+## 8. Vehicle control with gamepad
 
 See `docs/gamepad-control.md` for the operator flow and control mapping.
 

@@ -8,21 +8,7 @@ Repos: `r2d2` (this one, the vehicle) and `r2d2-infrastructure` (AWS).
 
 ---
 
-## 1. Battery and attitude telemetry
-
-**Where:** `apps/vehicle_control/fc.py`, `apps/api/services/vehicle_status.py` · **Size:** S
-
-Battery is the single most useful field on any vehicle: it predicts the failure
-that actually strands it. `SYS_STATUS` over MAVLink carries `voltage_battery`,
-`current_battery` and `battery_remaining`, and nothing reads it yet.
-
-`fc.py` already reads `ATTITUDE` (roll/pitch/yaw) and throws it away. Getting it
-into the snapshot is nearly free and gives tipped/stuck detection.
-
-Both flow to Postgres automatically once they are in `snapshot()` - the payload
-is JSONB, so no schema change is needed.
-
-## 2. Last Will and Testament
+## 1. Last Will and Testament
 
 **Where:** `lib/telemetry/publisher.py` (`_PahoConnection.connect`) · **Size:** XS
 
@@ -35,7 +21,7 @@ which with the 300s idle interval means up to five minutes of ambiguity.
 plus publishing `online` after connect. Retained, so anything subscribing later
 sees current state immediately.
 
-## 3. Scope the IoT policy
+## 2. Scope the IoT policy
 
 **Where:** `r2d2-infrastructure/terraform/iot.tf` · **Size:** S
 
@@ -51,7 +37,7 @@ Resource = "arn:aws:iot:${region}:${account}:topic/rover/$${iot:Connection.Thing
 
 Cheap with one rover, painful to retrofit across a fleet.
 
-## 4. Raspberry Pi health telemetry
+## 3. Raspberry Pi health telemetry
 
 **Where:** `apps/api/services/vehicle_status.py` · **Size:** S
 
@@ -62,7 +48,7 @@ thermal throttling, a full SD card, a weak USB supply browning out the board.
 Cheap to collect, and they explain failures that otherwise look like random
 hangs.
 
-## 5. Control-link failsafe
+## 4. Control-link failsafe
 
 **Where:** `apps/vehicle_control/vehicle_controller.py` · **Size:** S
 
