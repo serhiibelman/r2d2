@@ -6,9 +6,14 @@ Run on the Pi from the project root, before starting the API:
 
 It touches no motors and no camera - it only resolves the configuration,
 reports what is missing, and publishes a single test message.
+
+Spooling is switched off here on purpose: this asks "can this machine reach
+IoT Core right now", so a failure has to be a failure, not a message parked in
+the vehicle's spool for the API to deliver later.
 """
 
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,7 +35,7 @@ def check_file(label: str, path: str) -> bool:
 
 
 def main() -> int:
-    config = TelemetryConfig()
+    config = replace(TelemetryConfig(), spool_path="")
 
     print_info("Configuration (from .env in the current directory)")
     if config.endpoint:

@@ -1,7 +1,8 @@
 """Tests for the MQTT publisher in `lib/telemetry`.
 
 A fake connection stands in for AWS IoT, so nothing here needs the network,
-a certificate or the `awscrt` extension.
+a certificate or the `awscrt` extension. Spooling is left on, as it is in
+production, but pointed at `:memory:` so no test writes the vehicle's spool.
 """
 
 import json
@@ -22,17 +23,23 @@ class FakeConnection:
         self.published: list[tuple[str, str]] = []
         self.connects = 0
         self.disconnects = 0
-        self._publish_error = publish_error
+        self.publish_error = publish_error
 
     def connect(self):
         self.connects += 1
         return FakeFuture()
 
     def publish(self, topic, payload, qos):
-        if self._publish_error is not None:
-            raise self._publish_error
+        if self.publish_error is not None:
+            raise self.publish_error
         self.published.append((topic, payload))
         return FakeFuture()
+
+    def go_offline(self, error: Exception | None = None):
+        self.publish_error = error or OSError("uplink down")
+
+    def go_online(self):
+        self.publish_error = None
 
     def disconnect(self):
         self.disconnects += 1
@@ -63,6 +70,7 @@ def make_publisher(connection=None, **overrides):
         "cert_path": "/certs/device.pem.crt",
         "key_path": "/certs/private.pem.key",
         "root_ca_path": "/certs/Amazon-root-CA-1.pem",
+        "spool_path": ":memory:",
     }
     fields.update(overrides)
     config = TelemetryConfig(**fields)
@@ -264,6 +272,7 @@ def make_ticking_publisher(**overrides):
         "cert_path": "/certs/device.pem.crt",
         "key_path": "/certs/private.pem.key",
         "root_ca_path": "/certs/Amazon-root-CA-1.pem",
+        "spool_path": ":memory:",
         "heartbeat_seconds": 30.0,
         "idle_heartbeat_seconds": 300.0,
     }
@@ -345,15 +354,19 @@ def test_a_zero_heartbeat_publishes_only_on_change():
     assert len(connection.published) == 1
 
 
-def test_a_failed_publish_does_not_count_as_delivered_state():
-    # Otherwise the change that failed to send would be suppressed as "already
-    # published" and the next identical sample would be skipped.
+def test_a_failed_publish_is_kept_rather_than_re_queued_every_tick():
+    # The spool - not the change detector - is what stops the sample being
+    # lost, so a change that failed to send counts as recorded. Otherwise an
+    # outage would queue the same unchanged snapshot on every single tick and
+    # push the interesting messages out through the retention cap.
     publisher, connection, _ = make_ticking_publisher()
-    publisher._connection_factory = lambda _c: FakeConnection(publish_error=OSError("down"))
+    connection.go_offline()
 
     assert publisher.publish_if_due() is False
     assert publisher.publish_if_due() is False
-    assert publisher.failed == 2
+
+    assert publisher.spool_depth == 1
+    assert publisher.skipped == 1
 
 
 def test_a_parked_rover_waits_for_the_idle_heartbeat():
@@ -412,3 +425,165 @@ def test_a_zero_idle_heartbeat_keeps_one_rate_for_both():
 
     assert publisher.publish_if_due() is True
     assert json.loads(connection.published[1][1])["trigger"] == "heartbeat"
+
+
+# -- the offline spool ------------------------------------------------------
+
+
+class BrokenSpool:
+    """A spool on a read-only card, or a corrupt file."""
+
+    def append(self, topic, payload):
+        raise OSError("attempt to write a readonly database")
+
+    def pending(self, limit):
+        return []
+
+    def discard(self, ids):
+        return None
+
+    def depth(self):
+        return 0
+
+    def close(self):
+        return None
+
+
+def test_a_message_the_uplink_refused_goes_out_on_reconnect():
+    # The whole point of the spool: losing the link is exactly when the
+    # interesting samples happen, and they used to be logged and dropped.
+    publisher, connection = make_publisher()
+    connection.go_offline()
+    assert publisher.publish_once() is False
+    assert connection.published == []
+
+    connection.go_online()
+
+    assert publisher.flush() is True
+    assert len(connection.published) == 1
+    assert json.loads(connection.published[0][1])["snapshot"]["overall_status"] == "ok"
+
+
+def test_a_backlog_replays_oldest_first():
+    publisher, connection = make_publisher()
+    connection.go_offline()
+    for status in ("first", "second", "third"):
+        STATE["overall_status"] = status
+        publisher.publish_once()
+
+    connection.go_online()
+    publisher.flush()
+
+    replayed = [
+        json.loads(payload)["snapshot"]["overall_status"] for _t, payload in connection.published
+    ]
+    assert replayed == ["first", "second", "third"]
+
+
+def test_a_replayed_message_keeps_the_time_it_was_recorded():
+    # A late message still has to say when it happened, not when it was sent,
+    # or the whole backlog lands in Postgres stamped with the reconnect.
+    publisher, connection = make_publisher()
+    connection.go_offline()
+    publisher.publish_once()
+    queued_by = datetime.now(timezone.utc)
+
+    connection.go_online()
+    publisher.flush()
+
+    recorded_at = datetime.fromisoformat(json.loads(connection.published[0][1])["recorded_at"])
+    assert recorded_at <= queued_by
+
+
+def test_delivered_messages_leave_the_spool():
+    publisher, connection = make_publisher()
+
+    publisher.publish_once()
+
+    assert publisher.spool_depth == 0
+    assert len(connection.published) == 1
+
+
+def test_a_backlog_larger_than_one_batch_is_fully_drained():
+    publisher, connection = make_publisher(spool_batch=2)
+    connection.go_offline()
+    for index in range(5):
+        STATE["overall_status"] = f"status-{index}"
+        publisher.publish_once()
+
+    connection.go_online()
+    publisher.flush()
+
+    assert len(connection.published) == 5
+    assert publisher.spool_depth == 0
+
+
+def test_a_flush_that_fails_part_way_keeps_the_rest():
+    publisher, connection = make_publisher()
+    connection.go_offline()
+    for status in ("first", "second"):
+        STATE["overall_status"] = status
+        publisher.publish_once()
+    connection.go_online()
+
+    # One goes out, then the link drops again mid-drain.
+    original_publish = connection.publish
+
+    def flaky(topic, payload, qos):
+        result = original_publish(topic, payload, qos)
+        connection.go_offline()
+        return result
+
+    connection.publish = flaky
+    publisher.flush()
+
+    assert len(connection.published) == 1
+    assert publisher.spool_depth == 1
+
+
+def test_a_backlog_is_sent_even_when_nothing_new_is_due():
+    # A parked rover skips its tick; without a flush there it would sit on the
+    # backlog until something changed. This is the contract `_loop` relies on.
+    publisher, connection = make_publisher()
+    connection.go_offline()
+    publisher.publish_if_due()
+    connection.go_online()
+
+    assert publisher.publish_if_due() is False
+    assert publisher.flush() is True
+    assert publisher.spool_depth == 0
+
+
+def test_an_empty_spool_path_restores_publish_or_drop():
+    # The off switch, and the behaviour every rover had before the spool.
+    publisher, connection = make_publisher(spool_path="")
+    connection.go_offline()
+
+    assert publisher.publish_once() is False
+    assert publisher.spool_depth == 0
+
+    connection.go_online()
+    assert publisher.flush() is False
+    assert connection.published == []
+
+
+def test_an_unwritable_spool_falls_back_to_publishing_direct():
+    # A read-only card must cost the backlog, not the telemetry.
+    publisher, connection = make_publisher()
+    publisher._spool_factory = lambda _config: BrokenSpool()
+
+    assert publisher.publish_once() is True
+    assert len(connection.published) == 1
+
+
+def test_the_spool_file_is_not_opened_until_something_is_published(tmp_path):
+    # `create_app()` builds a publisher at import time, including on a laptop
+    # with no telemetry configured; that must not leave a file behind.
+    path = tmp_path / "spool.sqlite3"
+    publisher, _connection = make_publisher(spool_path=str(path))
+
+    assert not path.exists()
+
+    publisher.publish_once()
+    assert path.exists()
+    publisher.stop()

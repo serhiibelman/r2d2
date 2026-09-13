@@ -15,6 +15,10 @@ from settings import (
     TELEMETRY_IDLE_HEARTBEAT_SECONDS,
     TELEMETRY_INTERVAL_SECONDS,
     TELEMETRY_PUBLISH_TIMEOUT_SECONDS,
+    TELEMETRY_SPOOL_BATCH,
+    TELEMETRY_SPOOL_MAX_AGE_DAYS,
+    TELEMETRY_SPOOL_MAX_ROWS,
+    TELEMETRY_SPOOL_PATH,
     TELEMETRY_TOPIC,
 )
 
@@ -40,6 +44,19 @@ class TelemetryConfig:
     idle_heartbeat_seconds: float = TELEMETRY_IDLE_HEARTBEAT_SECONDS
     keep_alive_seconds: int = IOT_KEEP_ALIVE_SECONDS
     publish_timeout_seconds: float = TELEMETRY_PUBLISH_TIMEOUT_SECONDS
+    spool_path: str = TELEMETRY_SPOOL_PATH
+    spool_max_rows: int = TELEMETRY_SPOOL_MAX_ROWS
+    spool_max_age_days: float = TELEMETRY_SPOOL_MAX_AGE_DAYS
+    spool_batch: int = TELEMETRY_SPOOL_BATCH
+
+    @property
+    def spool_enabled(self) -> bool:
+        """An empty path is the off switch - publish or drop, as before."""
+        return bool(self.spool_path)
+
+    @property
+    def spool_max_age_seconds(self) -> float:
+        return self.spool_max_age_days * 24 * 3600
 
     @property
     def resolved_topic(self) -> str:
