@@ -50,11 +50,27 @@ def clear_backends():
     FakeCameraBackend.instances.clear()
 
 
+# `CameraService` binds its defaults from `settings` at import, so a service
+# built without arguments inherits whatever `.env` the machine happens to have.
+# These pin the camera the tests talk about: a test that changes its meaning
+# with the checkout it runs in is not testing the code.
+CAMERA = {
+    "enabled": True,
+    "width": 640,
+    "height": 480,
+    "framerate": 20,
+    "jpeg_quality": 80,
+    "max_clients": 4,
+    "encoder": "auto",
+    "buffer_count": 2,
+}
+
+
 def make_service(**kwargs) -> CameraService:
     return CameraService(
         backend_factory=FakeCameraBackend,
         frame_timeout_seconds=0.2,
-        **kwargs,
+        **{**CAMERA, **kwargs},
     )
 
 
@@ -184,5 +200,5 @@ def test_snapshot_reports_capture_counters() -> None:
 
     assert snapshot["frames_captured"] == 1
     assert snapshot["last_frame_at"] is not None
-    assert snapshot["width"] == 640
+    assert snapshot["width"] == CAMERA["width"]
     assert snapshot["component"]["connected"] is True
